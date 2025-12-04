@@ -1,0 +1,119 @@
+syntax = "proto3";
+
+import "wallet_common.proto";
+import "wallet_service.proto";
+import "google/protobuf/empty.proto";
+
+package wallet.v1;
+
+option java_multiple_files = true;
+option java_package = "com.central.wallet_service.grpc";
+option java_outer_classname = "HoldServiceProto";
+
+// Hold service manages authorization holds on wallet funds
+service HoldService {
+  // Place a hold on funds in a wallet
+  rpc PlaceHold(PlaceHoldRequestGrpc) returns (HoldResponseGrpc) {}
+  
+  // Capture funds from an existing hold
+  rpc CaptureHold(CaptureHoldRequestGrpc) returns (HoldResponseGrpc) {}
+  
+  // Release a hold and make funds available again
+  rpc ReleaseHold(ReleaseHoldRequestGrpc) returns (HoldResponseGrpc) {}
+  
+  // Get details of a specific hold
+  rpc GetHold(GetHoldRequestGrpc) returns (HoldResponseGrpc) {}
+  
+  // List all holds for a wallet with filtering and pagination
+  rpc ListHolds(ListHoldsRequestGrpc) returns (ListHoldsResponseGrpc) {}
+  
+  // Extend the expiration of an existing hold
+  rpc ExtendHold(ExtendHoldRequestGrpc) returns (HoldResponseGrpc) {}
+  
+  // Adjust the amount of an existing hold (increase or decrease)
+  rpc AdjustHold(AdjustHoldRequestGrpc) returns (HoldResponseGrpc) {}
+}
+
+// Request to place a hold on funds
+message PlaceHoldRequestGrpc {
+  string user_code = 1;  // User identifier
+  MoneyGrpc amount = 2;      // Amount to hold
+  string reference_id = 3; // External reference ID for the hold
+  string description = 4;  // Description of the hold
+  map<string, string> metadata = 5; // Additional metadata
+}
+
+// Request to capture funds from a hold
+message CaptureHoldRequestGrpc {
+  string hold_id = 1;  // ID of the hold to capture
+  MoneyGrpc amount = 2;    // Amount to capture (must be <= held amount)
+  string reference_id = 3; // External reference ID for the capture
+  string description = 4;  // Description of the capture
+  bool release_remainder = 5; // Whether to release any remaining held amount
+}
+
+// Request to release a hold
+message ReleaseHoldRequestGrpc {
+  string hold_id = 1;  // ID of the hold to release
+  string reason = 2;   // Reason for releasing the hold
+  map<string, string> metadata = 3; // Additional metadata
+}
+
+// Request to get hold details
+message GetHoldRequestGrpc {
+  string hold_id = 1;  // ID of the hold to retrieve
+  bool include_wallet_details = 2; // Whether to include wallet details in the response
+}
+
+// Request to list holds with filtering and pagination
+message ListHoldsRequestGrpc {
+  string user_code = 1;  // Optional: Filter by user
+  string status = 2;     // Optional: Filter by status (e.g., "ACTIVE", "CAPTURED", "RELEASED")
+  string currency_code = 3; // Optional: Filter by currency
+  TimestampGrpc from_date = 4;  // Optional: Filter holds created after this date
+  TimestampGrpc to_date = 5;    // Optional: Filter holds created before this date
+  PaginationRequest pagination = 6;
+}
+
+// Request to extend a hold's expiration
+message ExtendHoldRequestGrpc {
+  string hold_id = 1;  // ID of the hold to extend
+  TimestampGrpc new_expires_at = 2; // New expiration time
+  string reason = 3;   // Reason for the extension
+}
+
+// Request to adjust a hold amount
+message AdjustHoldRequestGrpc {
+  string hold_id = 1;  // ID of the hold to adjust
+  MoneyGrpc new_amount = 2; // New amount for the hold
+  string reason = 3;    // Reason for the adjustment
+}
+
+// Response containing hold information
+message HoldResponseGrpc {
+  string hold_id = 1;
+  string reference_id = 2;
+  string user_code = 3;
+  string status = 4;  // e.g., "ACTIVE", "CAPTURED", "RELEASED", "EXPIRED"
+  MoneyGrpc original_amount = 5;
+  MoneyGrpc remaining_amount = 6;
+  MoneyGrpc captured_amount = 7;
+  TimestampGrpc created_at = 8;
+  TimestampGrpc expires_at = 9;
+  TimestampGrpc updated_at = 10;
+  string description = 11;
+  map<string, string> metadata = 12;
+  
+  // Only populated if requested
+  WalletResponseGrpc wallet = 13;
+  
+  // Transaction details if captured
+  string capture_transaction_id = 14;
+  string release_transaction_id = 15;
+}
+
+// Response containing a list of holds with pagination
+message ListHoldsResponseGrpc {
+  repeated HoldResponseGrpc holds = 1;
+  PaginationResponse pagination = 2;
+}

@@ -1,0 +1,120 @@
+syntax = "proto3";
+
+import "wallet_common.proto";
+
+package wallet.v1;
+
+option java_multiple_files = true;
+option java_package = "com.central.wallet_service.grpc";
+option java_outer_classname = "WalletServiceProto";
+
+// Wallet service handles wallet creation, balance management, and basic transactions
+service WalletService {
+  // Create a new wallet for a user
+  rpc CreateWallet(CreateWalletRequestGrpc) returns (WalletResponseGrpc) {}
+  
+  // Get wallet details by user code
+  rpc GetWalletByUserCode(GetWalletRequestByUserCodeGrpc) returns (WalletResponseGrpc) {}
+  
+  // Deposit funds into a wallet
+  rpc Deposit(WalletTransactionRequestGrpc) returns (WalletTransactionResponseGrpc) {}
+  
+  // Withdraw funds from a wallet
+  rpc Withdraw(WalletTransactionRequestGrpc) returns (WalletTransactionResponseGrpc) {}
+  
+  // Get wallet balance
+  rpc GetBalance(GetBalanceRequestGrpc) returns (GetBalanceResponseGrpc) {}
+
+}
+
+// Request to create a new wallet
+message CreateWalletRequestGrpc {
+  string user_code = 1;  // Unique user identifier from the user service
+  string currency_code = 2;  // ISO 4217 currency code (e.g., "INR", "USD")
+  map<string, string> metadata = 3;  // Additional metadata for the wallet
+}
+
+// Request to get wallet details
+message GetWalletRequestByUserCodeGrpc {
+  string user_code = 1;  // User identifier
+  bool include_balance = 2;  // Whether to include balance information
+  bool include_transactions = 3;  // Whether to include recent transactions
+}
+
+// Request to get wallet balance
+message GetBalanceRequestGrpc {
+  string user_code = 1;  // User identifier
+  string currency_code = 2;  // Optional: Filter by specific currency
+}
+
+// Response containing wallet balance
+message GetBalanceResponseGrpc {
+  string user_code = 1;
+  repeated BalanceEntry balances = 2;
+  
+  message BalanceEntry {
+    string currency_code = 1;
+    MoneyGrpc available_balance = 2;
+    MoneyGrpc locked_balance = 3;
+    MoneyGrpc pending_balance = 4;
+  }
+}
+
+
+
+
+// Wallet transaction request
+message WalletTransactionRequestGrpc {
+  string user_code = 1;
+  MoneyGrpc amount = 2;
+  string transaction_id = 3;  // External transaction reference ID
+  string description = 4;     // Optional transaction description
+  map<string, string> metadata = 5;  // Additional transaction metadata
+}
+
+// Wallet transaction response
+message WalletTransactionResponseGrpc {
+  string transaction_id = 1;
+  string reference_id = 2;  // Internal reference ID
+  string status = 3;  // e.g., "COMPLETED", "PENDING", "FAILED"
+  MoneyGrpc amount = 4;
+  MoneyGrpc fee = 5;  // Any fees associated with the transaction
+  MoneyGrpc new_balance = 6;
+  TimestampGrpc processed_at = 7;
+  string description = 8;
+  map<string, string> metadata = 9;
+  string username = 10;      // Username of the user
+  string email = 11;         // Email address of the user
+  string phone_number = 12;  // Phone number of the user
+  string user_code = 13;
+}
+
+// Wallet details response
+message WalletResponseGrpc {
+  string wallet_id = 1;
+  string user_code = 2;
+  repeated BalanceEntryGrpc balances = 3;
+  WalletStatusGrpc status = 4;
+  TimestampGrpc created_at = 5;
+  TimestampGrpc updated_at = 6;
+  map<string, string> metadata = 7;
+  string username = 8;
+  string email = 9;
+  string phone_number = 10;
+
+  
+  message BalanceEntryGrpc {
+    string currency_code = 1;
+    MoneyGrpc available_balance = 2;
+    MoneyGrpc locked_balance = 3;
+  }
+  
+  enum WalletStatusGrpc {
+    STATUS_UNSPECIFIED = 0;
+    ACTIVE = 1;
+    SUSPENDED = 2;
+    CLOSED = 3;
+    FROZEN = 4;
+  }
+}
+

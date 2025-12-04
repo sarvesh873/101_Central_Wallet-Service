@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package wallet.v1;
+
+option java_multiple_files = true;
+option java_package = "com.central.wallet_service.grpc";
+option java_outer_classname = "WalletCommonProto";
+
+// Common currency codes
+enum CurrencyGrpc {
+  CURRENCY_UNSPECIFIED = 0;
+  INR = 1;
+  USD = 2;
+  EUR = 3;
+  GBP = 4;
+}
+
+// Common error codes
+enum ErrorCode {
+  ERROR_CODE_UNSPECIFIED = 0;
+  INSUFFICIENT_FUNDS = 1;
+  WALLET_NOT_FOUND = 2;
+  HOLD_NOT_FOUND = 3;
+  INVALID_AMOUNT = 4;
+  SERVICE_UNAVAILABLE = 5;
+  VALIDATION_ERROR = 6;
+  UNAUTHENTICATED = 7;
+  PERMISSION_DENIED = 8;
+  ALREADY_EXISTS = 9;
+  DEADLINE_EXCEEDED = 10;
+  RESOURCE_EXHAUSTED = 11;
+  FAILED_PRECONDITION = 12;
+  ABORTED = 13;
+  OUT_OF_RANGE = 14;
+  UNIMPLEMENTED = 15;
+  INTERNAL = 16;
+  UNAVAILABLE = 17;
+  DATA_LOSS = 18;
+}
+
+// Common error response
+message ErrorGrpc {
+  ErrorCode code = 1;
+  string message = 2;
+  string description = 3;
+  map<string, string> metadata = 4;
+}
+
+// Common timestamp
+message TimestampGrpc {
+  int64 seconds = 1;
+  int32 nanos = 2;
+}
+
+// Common money type for financial amounts
+message MoneyGrpc {
+  string currency_code = 1;
+  int64 units = 2;
+  int32 nanos = 3;
+}
+
+// Common pagination request
+message PaginationRequest {
+  int32 page = 1;
+  int32 page_size = 2;
+  string sort_by = 3;
+  bool sort_descending = 4;
+}
+
+// Common pagination response
+message PaginationResponse {
+  int32 total_items = 1;
+  int32 total_pages = 2;
+  int32 current_page = 3;
+  int32 page_size = 4;
+  bool has_next = 5;
+  bool has_previous = 6;
+}

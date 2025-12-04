@@ -1,0 +1,870 @@
+openapi: 3.0.3
+info:
+  title: Wallet Microservice API (Core & Holds)
+  description: API for managing user wallets, balances, and hold/capture authorizations. Transaction history is managed by a separate service.
+  version: 1.2.0
+servers:
+  - url: http://localhost:8086/wallet_service/api
+    description: Base URL for the Wallet Service
+tags:
+  - name: Wallets
+    description: Core operations for managing user accounts and balances.
+  - name: Holds
+    description: Operations for authorization, capture, and release of funds.
+  - name: Wallet_Transactions
+    description: Initiates deposits and withdrawals on the core wallet balance.
+
+components:
+  schemas:
+    # --- Error Schema ---
+    ErrorResponse:
+      type: object
+      x-lombok-annotations:
+        - "@lombok.Builder"
+      properties:
+        errorCode:
+          type: number
+          format: double
+          description: Numeric error code
+          example: 4001
+        description:
+          type: string
+          description: Human-readable description providing more details about the error
+          example: "The withdrawal amount exceeds the available balance."
+        errorType:
+          type: string
+          description: Categorization of the error (e.g., VALIDATION_ERROR, INSUFFICIENT_FUNDS)
+          example: "INSUFFICIENT_FUNDS"
+        errorMessage:
+          type: string
+          description: A brief message summarizing the error condition
+          example: "Insufficient Balance"
+
+    # --- Wallet Schemas ---
+    WalletCreateRequest:
+      type: object
+      required:
+        - userCode
+        - currency
+      properties:
+        userCode:
+          type: string
+          description: The unique ID of the user (User Service primary key, used here as foreign key).
+          example: 'user-abc-123'
+        currency:
+          type: string
+          description: The currency code (e.g., USD, EUR).
+          example: 'INR'
+
+    WalletResponse:
+      type: object
+      description: Detailed information about a user's wallet.
+      properties:
+        walletId:
+          type: integer
+          format: int64
+          description: Unique identifier of the wallet.
+          example: 1001
+        userCode:
+          type: string
+          description: The unique user identifier.
+          example: 'user-abc-123'
+        balance:
+          type: number
+          format: double
+          description: Current available balance in the wallet (excluding active holds).
+          example: 100.75
+        status:
+          type: string
+          description: The status of the wallet.
+          example: 'ACTIVE'
+        currency:
+          type: string
+          description: The currency code (e.g., USD, EUR).
+          example: 'INR'
+        availableBalance:
+          type: number
+          format: double
+          description: Current available balance in the wallet (excluding active holds).
+          example: 100.75
+        createdAt:
+          type: string
+          format: date-time
+          description: Timestamp when the wallet was created.
+          example: '2025-11-29T10:00:00Z'
+        username:
+          type: string
+          description: The username snapshot replicated from the User Service.
+          example: 'Alice Smith'
+        email:
+          type: string
+          format: email
+          description: The email address of the user.
+          example: 'alice.smith@example.com'
+        phoneNumber:
+          type: string
+          description: The phone number of the user.
+          example: '+1234567890'
+
+    # --- Hold Schemas ---
+    HoldRequest:
+      type: object
+      required:
+        - userCode
+        - amount
+        - expiresAt
+        - currency
+      properties:
+        userCode:
+          type: string
+          description: The userCode associated with the wallet to place the hold on.
+          example: 'user-abc-123'
+        amount:
+          type: number
+          format: double
+          description: The amount to authorize and place on hold.
+          minimum: 0.01
+          example: 50.00
+        transaction_id:
+          type: string
+          description: External reference ID for the hold.
+          example: 'order-123'
+        description:
+          type: string
+          description: Description of the hold.
+          example: 'Hold for order #123'
+        currency:
+          type: string
+          description: The currency code (e.g., USD, EUR).
+          example: 'INR'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional metadata for the hold.
+
+    HoldResponse:
+      type: object
+      description: Response containing details about a hold.
+      properties:
+        holdId:
+          type: string
+          description: Unique identifier for the hold.
+          example: 'hold-xyz789'
+        transaction_id:
+          type: string
+          description: External reference ID for the hold.
+          example: 'order-123'
+        userCode:
+          type: string
+          description: The user code associated with the hold.
+          example: 'user-abc-123'
+        status:
+          type: string
+          enum: [ACTIVE, CAPTURED, RELEASED, EXPIRED]
+          description: Current status of the hold.
+          example: 'ACTIVE'
+        originalAmount:
+          type: number
+          format: double
+          description: The original amount held.
+          example: 50.00
+        remainingAmount:
+          type: number
+          format: double
+          description: The remaining amount that can be captured.
+          example: 50.00
+        capturedAmount:
+          type: number
+          format: double
+          description: The amount that has been captured.
+          example: 0.00
+        createdAt:
+          type: string
+          format: date-time
+          description: When the hold was created.
+          example: '2025-12-01T10:00:00Z'
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the hold will expire.
+          example: '2025-12-05T12:00:00Z'
+        updatedAt:
+          type: string
+          format: date-time
+          description: When the hold was last updated.
+          example: '2025-12-01T10:00:00Z'
+        description:
+          type: string
+          description: Description of the hold.
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+          description: Additional metadata for the hold.
+        captureTransactionId:
+          type: string
+          description: ID of the capture transaction if any.
+        releaseTransactionId:
+          type: string
+          description: ID of the release transaction if any.
+
+    CaptureRequest:
+      type: object
+      required:
+        - holdId
+      properties:
+        holdId:
+          type: string
+          description: The ID of the hold to be captured.
+          example: 'hold-xyz789'
+        amount:
+          type: number
+          format: double
+          description: The amount to capture. Must be less than or equal to the held amount. If omitted, the entire held amount is captured.
+          example: 45.00
+        transaction_id:
+          type: string
+          description: External reference ID for the capture.
+          example: 'capture-123'
+        description:
+          type: string
+          description: Description of the capture.
+        releaseRemainder:
+          type: boolean
+          default: true
+          description: Whether to release any remaining held amount after capture.
+
+    # --- Transaction List Schemas
+    PaginationRequest:
+      type: object
+      properties:
+        page:
+          type: integer
+          format: int32
+          minimum: 1
+          default: 1
+          description: The page number to retrieve (1-based).
+        pageSize:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 100
+          default: 20
+          description: Number of items per page.
+        sortBy:
+          type: string
+          description: Field to sort by.
+          example: 'createdAt'
+        sortDescending:
+          type: boolean
+          default: true
+          description: Sort in descending order.
+
+    PaginationResponse:
+      type: object
+      properties:
+        totalItems:
+          type: integer
+          format: int64
+          description: Total number of items across all pages.
+        totalPages:
+          type: integer
+          format: int32
+          description: Total number of pages.
+        currentPage:
+          type: integer
+          format: int32
+          description: Current page number (1-based).
+        pageSize:
+          type: integer
+          format: int32
+          description: Number of items per page.
+        hasNext:
+          type: boolean
+          description: Whether there is a next page.
+        hasPrevious:
+          type: boolean
+          description: Whether there is a previous page.
+
+
+
+    # --- New Transaction Schemas ---
+    WalletTransactionRequest:
+      type: object
+      required:
+        - userCode
+        - amount
+        - currency
+        - transactionId
+      properties:
+        userCode:
+          type: string
+          description: The user code associated with the transaction.
+          example: 'user-123'
+        amount:
+          type: number
+          format: double
+          description: The monetary amount to transfer.
+          minimum: 0.01
+          example: 50.00
+        transactionId:
+          type: string
+          description: The unique identifier for the transaction.
+          example: '123e4567-e89b-12d3-a456-426614174000'
+        currency:
+          type: string
+          description: The currency code (e.g., USD, EUR).
+          example: 'INR'
+
+    WalletTransactionResponse:
+      type: object
+      description: Confirmation details after a successful deposit or withdrawal.
+      properties:
+        walletId:
+          type: integer
+          format: int64
+          description: ID of the wallet affected.
+          example: 1001
+        transactionType:
+          type: string
+          enum: [DEPOSIT, WITHDRAWAL]
+          description: Type of transaction performed.
+          example: DEPOSIT
+        processedAmount:
+          type: number
+          format: double
+          description: The final amount processed.
+          example: 50.00
+        newBalance:
+          type: number
+          format: double
+          description: The balance of the wallet after this transaction.
+          example: 150.75
+        newAvailableBalance:
+          type: number
+          format: double
+          description: The available balance of the wallet after this transaction.
+          example: 150.75
+        userCode:
+          type: string
+          description: The user code associated with the transaction.
+          example: 'user-123'
+        status:
+          type: string
+          enum: [COMPLETED, FAILED, DECLINED, EXPIRED]
+          description: Status of the transaction processing.
+          example: COMPLETED
+        transactionId:
+          type: string
+          description: The unique identifier for the transaction.
+          example: '123e4567-e89b-12d3-a456-426614174000'
+        username:
+          type: string
+          description: The username of the user associated with the transaction.
+          example: 'john_doe'
+        email:
+          type: string
+          format: email
+          description: The email address of the user.
+          example: 'john.doe@example.com'
+        phoneNumber:
+          type: string
+          description: The phone number of the user.
+          example: '+1234567890'
+
+paths:
+  /wallets:
+    post:
+      tags:
+        - Wallets
+      summary: Create a new wallet for a user.
+      description: Creates a new wallet record, initializing the balance to zero. Requires the userCode to exist in the local snapshot table.
+      operationId: createWallet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletCreateRequest'
+      responses:
+        '201':
+          description: Wallet created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '400':
+          description: Validation error (e.g., missing userCode or invalid format).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '409':
+          description: Conflict (e.g., Wallet already exists for this userCode).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Unprocessable Entity (e.g., UserCode not found in WalletUserSnapshot table - required for data integrity).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /wallets/{userCode}:
+    get:
+      tags:
+        - Wallets
+      summary: Get wallet details by user code.
+      description: Retrieves the current balance and associated user information for a specific user.
+      operationId: getWalletByUserCode
+      parameters:
+        - name: userCode
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The unique code of the user whose wallet is being fetched.
+          example: 'user-abc-123'
+      responses:
+        '200':
+          description: Wallet details retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletResponse'
+        '404':
+          description: Wallet not found for the given userCode.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /wallets/{userCode}/deposit:
+    post:
+      tags:
+        - Wallet_Transactions
+      summary: Deposit funds into a wallet.
+      description: Increases the wallet balance and initiates a ledger entry.
+      operationId: depositFunds
+      parameters:
+        - name: userCode
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The unique code of the user whose wallet is being funded.
+          example: 'user-abc-123'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletTransactionRequest'
+      responses:
+        '200':
+          description: Deposit successful, returns confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletTransactionResponse'
+        '400':
+          description: Validation error (e.g., negative amount).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Wallet not found for the userCode.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Internal processing error (e.g., ledger failure).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /wallets/{userCode}/withdraw:
+    post:
+      tags:
+        - Wallet_Transactions
+      summary: Withdraw funds from a wallet.
+      description: Decreases the wallet balance and initiates a ledger entry, checks for insufficient funds.
+      operationId: withdrawFunds
+      parameters:
+        - name: userCode
+          in: path
+          required: true
+          schema:
+            type: string
+            description: The unique code of the user whose wallet is being debited.
+          example: 'user-abc-123'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WalletTransactionRequest'
+      responses:
+        '200':
+          description: Withdrawal successful, returns confirmation.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WalletTransactionResponse'
+        '400':
+          description: Validation error (e.g., negative amount).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Wallet not found for the userCode.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '402':
+          description: Insufficient Funds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+                example:
+                  errorCode: 4020
+                  description: "Insufficient available balance for withdrawal."
+                  errorType: "INSUFFICIENT_FUNDS"
+                  errorMessage: "Withdrawal failed"
+
+  /holds:
+    post:
+      tags:
+        - Holds
+      summary: Place a hold on funds.
+      description: Places a hold on funds in a wallet, reducing the available balance.
+      operationId: placeHold
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HoldRequest'
+      responses:
+        '200':
+          description: Hold successfully placed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '400':
+          description: Invalid request parameters.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '402':
+          description: Insufficient funds.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    get:
+      tags:
+        - Holds
+      summary: List holds.
+      description: Retrieves a paginated list of holds with optional filtering.
+      operationId: listHolds
+      parameters:
+        - name: userCode
+          in: query
+          schema:
+            type: string
+          description: Filter by user code.
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ ACTIVE, CAPTURED, RELEASED, EXPIRED ]
+          description: Filter by hold status.
+        - name: currency
+          in: query
+          schema:
+            type: string
+          description: Filter by currency code.
+        - name: fromDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter holds created after this date.
+        - name: toDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter holds created before this date.
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          description: Page number for pagination.
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+          description: Number of items per page.
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [ createdAt, expiresAt, amount, status ]
+            default: createdAt
+          description: Field to sort by.
+        - name: sortDesc
+          in: query
+          schema:
+            type: boolean
+            default: true
+          description: Sort in descending order.
+      responses:
+        '200':
+          description: List of holds retrieved successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/HoldResponse'
+                  pagination:
+                    $ref: '#/components/schemas/PaginationResponse'
+
+  /holds/capture:
+    post:
+      tags:
+        - Holds
+      summary: Capture funds from a hold.
+      description: Captures funds from an existing hold and moves them to the wallet balance.
+      operationId: captureHoldFunds
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CaptureRequest'
+      responses:
+        '200':
+          description: Hold successfully captured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '400':
+          description: Invalid request or hold cannot be captured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Hold not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /holds/{holdId}:
+    get:
+      tags:
+        - Holds
+      summary: Get hold details.
+      description: Retrieves details of a specific hold.
+      operationId: getHold
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 'hold-xyz789'
+      responses:
+        '200':
+          description: Hold details retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '404':
+          description: Hold not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    
+    post:
+      tags:
+        - Holds
+      summary: Release a hold.
+      description: Releases a hold and returns funds to the available balance.
+      operationId: releaseHold
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 'hold-xyz789'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                reason:
+                  type: string
+                  description: Reason for releasing the hold.
+                metadata:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  description: Additional metadata for the release.
+      responses:
+        '200':
+          description: Hold successfully released.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '400':
+          description: Invalid request or hold cannot be released.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Hold not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /holds/{holdId}/extend:
+    post:
+      tags:
+        - Holds
+      summary: Extend a hold's expiration.
+      description: Extends the expiration time of an existing hold.
+      operationId: extendHold
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 'hold-xyz789'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newExpiresAt
+              properties:
+                newExpiresAt:
+                  type: string
+                  format: date-time
+                  description: New expiration time for the hold.
+                reason:
+                  type: string
+                  description: Reason for extending the hold.
+      responses:
+        '200':
+          description: Hold successfully extended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '400':
+          description: Invalid request or hold cannot be extended.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Hold not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /holds/{holdId}/adjust:
+    post:
+      tags:
+        - Holds
+      summary: Adjust a hold amount.
+      description: Adjusts the amount of an existing hold (increase or decrease).
+      operationId: adjustHold
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: 'hold-xyz789'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newAmount
+              properties:
+                newAmount:
+                  type: number
+                  format: double
+                  minimum: 0.01
+                  description: New amount for the hold.
+                reason:
+                  type: string
+                  description: Reason for adjusting the hold.
+      responses:
+        '200':
+          description: Hold successfully adjusted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HoldResponse'
+        '400':
+          description: Invalid request or hold cannot be adjusted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '402':
+          description: Insufficient funds for hold increase.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Hold not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+
