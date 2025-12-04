@@ -8,7 +8,6 @@ import com.central.wallet_service.model.WalletHold;
 import com.central.wallet_service.repository.WalletHoldRepository;
 import com.central.wallet_service.repository.WalletRepository;
 import com.central.wallet_service.utils.ServiceUtils;
-import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -17,17 +16,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
 import com.central.wallet_service.specifications.WalletHoldSpecifications;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 import static com.central.wallet_service.utils.ServiceUtils.constructHoldResponse;
+import static com.central.wallet_service.utils.ServiceUtils.generateHoldReference;
 
 @Slf4j
 @Service
@@ -64,14 +61,13 @@ public class HoldServiceImpl implements HoldService {
             // Create and save the hold
             WalletHold hold = WalletHold.builder()
                 .wallet(wallet)
-                .capturedAmount(amount)
+                .holdId(generateHoldReference())
                 .transaction_id(request.getTransactionId())
-                .description(request.getDescription())
-                .status(HoldStatus.ACTIVE)
-                    .holdId("HOLD-" + System.currentTimeMillis())
-                    .capturedAmount(amount)
                 .originalAmount(walletBalance)
-                 .remainingAmount(newBalanceAfterHoldPlaced)
+                .remainingAmount(newBalanceAfterHoldPlaced)
+                .capturedAmount(amount)
+                .status(HoldStatus.ACTIVE)
+                .description(request.getDescription())
                 .build();
 
             WalletHold savedHold = holdRepository.save(hold);
@@ -156,7 +152,6 @@ public class HoldServiceImpl implements HoldService {
             // Update hold status
             hold.setStatus(HoldStatus.RELEASED);
             hold.setDescription(request.getReason());
-            hold.setMetadata((JsonNode) request.getMetadata());
             WalletHold releasedHold = holdRepository.save(hold);
             
             // Return funds to available balance
@@ -287,6 +282,10 @@ public class HoldServiceImpl implements HoldService {
             // Update the hold with new amount
             hold.setCapturedAmount(newAmount);
             hold.setRemainingAmount(wallet.getAvailableBalance());
+            hold.setAdjusted(true);
+            hold.setAdjustmentReason(request.getReason());
+            hold.setPreviousAmount(currentAmount);
+            hold.setAdjustedAt(LocalDateTime.now());
 
             // Save the updated hold and wallet
             WalletHold updatedHold = holdRepository.save(hold);

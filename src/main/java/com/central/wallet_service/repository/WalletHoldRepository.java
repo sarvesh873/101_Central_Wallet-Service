@@ -36,23 +36,6 @@ public interface WalletHoldRepository extends JpaRepository<WalletHold, Long> {
     Page<WalletHold> findByWallet(Wallet wallet, Pageable pageable);
     
     /**
-     * Find holds by status
-     * @param status The status to filter by
-     * @param pageable Pagination information
-     * @return Page of holds with the given status
-     */
-    Page<WalletHold> findByStatus(HoldStatus status, Pageable pageable);
-    
-    /**
-     * Find holds by wallet and status
-     * @param wallet The wallet to find holds for
-     * @param status The status to filter by
-     * @param pageable Pagination information
-     * @return Page of holds matching the criteria
-     */
-    Page<WalletHold> findByWalletAndStatus(Wallet wallet, HoldStatus status, Pageable pageable);
-    
-    /**
      * Find expired holds that are still in PENDING status
      * @param currentTime The current time to check against
      * @param status The status to filter by (typically PENDING)

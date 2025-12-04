@@ -4,7 +4,6 @@ import com.central.wallet_service.constants.WalletConstants;
 import com.central.wallet_service.exception.WalletException;
 import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.model.Wallet;
-import com.central.wallet_service.model.WalletTransactionStatus;
 import com.central.wallet_service.model.WalletUserSnapshot;
 import com.central.wallet_service.repository.WalletRepository;
 import com.central.wallet_service.repository.WalletUserSnapshotRepository;
@@ -64,7 +63,7 @@ public class WalletServiceImpl implements WalletService {
                     .currency(request.getCurrency() != null ? 
                         request.getCurrency() : WalletConstants.DEFAULT_CURRENCY)
                     .walletStatus(HoldStatus.ACTIVE)
-                    .lastModifiedBy("Uxcio98")
+                    .lastModifiedBy(request.getUserCode())
                     .build();
                 
             Wallet savedWallet = walletRepository.save(wallet);
@@ -136,7 +135,7 @@ public class WalletServiceImpl implements WalletService {
             wallet.setBalance(newBalance);
             wallet.setAvailableBalance(newAvailableBalance);
             wallet.setUpdatedAt(LocalDateTime.now());
-            wallet.setLastModifiedBy("Admin");
+            wallet.setLastModifiedBy(userCode);
             
             Wallet updatedWallet = walletRepository.save(wallet);
             
@@ -178,7 +177,7 @@ public class WalletServiceImpl implements WalletService {
             wallet.setBalance(newBalance);
             wallet.setAvailableBalance(newAvailableBalance);
             wallet.setUpdatedAt(LocalDateTime.now());
-            wallet.setLastModifiedBy("Admin");
+            wallet.setLastModifiedBy(userCode);
             
             Wallet updatedWallet = walletRepository.save(wallet);
             
@@ -228,46 +227,6 @@ public class WalletServiceImpl implements WalletService {
         }
     }
 
-    @Override
-    @Transactional
-    public Wallet updateWalletStatus(String userCode, WalletTransactionStatus status) {
-        try {
-            if (status == null) {
-                throw WalletException.badRequest(WalletConstants.INVALID_STATUS);
-            }
-            
-            Wallet wallet = walletRepository.findByUserCode(userCode)
-                .orElseThrow(() -> WalletException.notFound(
-                    String.format(WalletConstants.WALLET_NOT_FOUND, userCode)));
-                    
-            // Check if the status transition is valid
-            if (!isValidStatusTransition(wallet.getWalletStatus(), HoldStatus.valueOf(status.name()))) {
-                log.warn("{} - Current: {}, Requested: {}", 
-                    WalletConstants.OPERATION_NOT_ALLOWED, wallet.getWalletStatus(), status);
-                throw WalletException.badRequest(WalletConstants.OPERATION_NOT_ALLOWED);
-            }
-
-            HoldStatus oldStatus = wallet.getWalletStatus();
-            wallet.setWalletStatus(HoldStatus.valueOf(status.name()));
-            wallet.setUpdatedAt(LocalDateTime.now());
-            wallet.setLastModifiedBy("Admin");
-            
-            Wallet updatedWallet = walletRepository.save(wallet);
-            
-            log.info(WalletConstants.LOG_WALLET_STATUS_CHANGED, userCode, oldStatus, status);
-            return updatedWallet;
-            
-        } catch (WalletException ex) {
-            log.error("{} for user {}: {}", 
-                WalletConstants.OPERATION_NOT_ALLOWED, userCode, ex.getMessage(), ex);
-            throw ex;
-        } catch (Exception ex) {
-            log.error("{} while updating wallet status for user {}: {}", 
-                WalletConstants.INTERNAL_SERVER_ERROR, userCode, ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
-        }
-    }
-
 
     @Override
     public boolean walletExists(String userCode) {
@@ -308,10 +267,7 @@ public class WalletServiceImpl implements WalletService {
         if (request.getAmount() == null || request.getAmount() <= 0) {
             throw WalletException.badRequest(WalletConstants.INVALID_AMOUNT);
         }
-        
-        if (StringUtils.isBlank(request.getTransactionId())) {
-            throw WalletException.badRequest(WalletConstants.INVALID_REFERENCE);
-        }
+
     }
     
     private WalletResponse mapToWalletResponse(Wallet wallet) {
@@ -348,7 +304,6 @@ public class WalletServiceImpl implements WalletService {
         }
 
         return new WalletTransactionResponse()
-                .transactionId(UUID.randomUUID().toString())
                 .walletId(wallet.getId())
                 .transactionType(WalletTransactionResponse.TransactionTypeEnum.fromValue(type))
                 .processedAmount(amount)

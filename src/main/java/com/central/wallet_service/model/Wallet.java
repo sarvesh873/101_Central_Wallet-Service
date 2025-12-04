@@ -34,9 +34,6 @@ public class Wallet {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt;
 
-    @Column(name = "transaction_id")
-    private String transaction_id;
-
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 

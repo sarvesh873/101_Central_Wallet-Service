@@ -1,11 +1,7 @@
 package com.central.wallet_service.service;
 
 import com.central.wallet_service.model.Wallet;
-import com.central.wallet_service.model.WalletTransactionStatus;
 import org.openapitools.model.*;
-
-import java.math.BigDecimal;
-import java.util.List;
 
 public interface WalletService {
     
@@ -45,15 +41,6 @@ public interface WalletService {
      * @return Available balance
      */
     Double getAvailableBalance(String userCode);
-    
-    /**
-     * Updates wallet status
-     * @param userCode Unique identifier for the user
-     * @param status New status
-     * @return Updated wallet
-     */
-    Wallet updateWalletStatus(String userCode, WalletTransactionStatus status);
-
 
 
     /**

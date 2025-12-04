@@ -69,15 +69,7 @@ public final class ServiceUtils {
         // Convert to system default timezone while preserving the instant in time
         return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
     }
-    
-    /**
-     * Gets the start of the day (00:00:00) for the given date
-     * @param date The date to get start of day for
-     * @return Start of the day as LocalDateTime
-     */
-    public static LocalDateTime atStartOfDay(LocalDateTime date) {
-        return date != null ? date.toLocalDate().atStartOfDay() : null;
-    }
+
     
     /**
      * Gets the end of the day (23:59:59.999999999) for the given date
@@ -87,7 +79,7 @@ public final class ServiceUtils {
     public static LocalDateTime atEndOfDay(LocalDateTime date) {
         return date != null ? date.toLocalDate().atTime(23, 59, 59, 999999999) : null;
     }
-    
+
     /**
      * Converts Instant to LocalDateTime
      * @param instant The Instant to convert
@@ -112,49 +104,11 @@ public final class ServiceUtils {
     }
     
     /**
-     * Validates if the string is not blank
-     * @param value The string to validate
-     * @param fieldName The name of the field for error message
-     * @throws WalletException if value is blank
-     */
-    public static void validateNotBlank(String value, String fieldName) {
-        if (StringUtils.isBlank(value)) {
-            throw WalletException.badRequest(String.format("%s cannot be blank", fieldName));
-        }
-    }
-    
-    /**
-     * Validates if the object is not null
-     * @param obj The object to check
-     * @param message The error message if null
-     * @param <T> The type of the object
-     * @return The object if not null
-     * @throws WalletException if object is null
-     */
-    public static <T> T requireNonNull(T obj, String message) {
-        if (obj == null) {
-            throw WalletException.badRequest(message);
-        }
-        return obj;
-    }
-    
-    /**
      * Generates a unique transaction reference
      * @return A unique transaction reference string
      */
-    public static String generateTransactionReference() {
-        return "TXN" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8);
-    }
-    
-    /**
-     * Formats an amount with the specified number of decimal places
-     * @param amount The amount to format
-     * @param decimalPlaces The number of decimal places
-     * @return Formatted amount
-     */
-    public static BigDecimal formatAmount(BigDecimal amount, int decimalPlaces) {
-        requireNonNull(amount, "Amount cannot be null");
-        return amount.setScale(decimalPlaces, RoundingMode.HALF_EVEN);
+    public static String generateHoldReference() {
+        return "HOLD" + "-" + UUID.randomUUID().toString().substring(0, 8);
     }
     
     /**
@@ -183,8 +137,8 @@ public final class ServiceUtils {
         }
         
         try {
-            String holdId = hold.getId() != null ? hold.getId().toString() : "null";
-            String walletId = hold.getWallet() != null ? 
+            String holdId = hold.getHoldId();
+            String walletId = hold.getWallet() != null ?
                 (hold.getWallet().getId() != null ? hold.getWallet().getId().toString() : "null") : "null";
             
             log.debug("Mapping WalletHold to HoldResponse - Hold ID: {}, Wallet ID: {}", holdId, walletId);
@@ -194,6 +148,8 @@ public final class ServiceUtils {
                 .userCode(hold.getWallet() != null && hold.getWallet().getUserSnapshot() != null ? 
                     hold.getWallet().getUserSnapshot().getUserCode() : null)
                 .remainingAmount(hold.getRemainingAmount())
+                    .originalAmount(hold.getOriginalAmount())
+                    .capturedAmount(hold.getCapturedAmount())
                 .status(HoldResponse.StatusEnum.valueOf(hold.getStatus().name()))
                 .transactionId(hold.getTransaction_id())
                 .description(hold.getDescription())
