@@ -58,15 +58,16 @@ public final class ServiceUtils {
     }
     
     /**
-     * Converts OffsetDateTime to LocalDateTime
+     * Converts OffsetDateTime to LocalDateTime while preserving the instant in time
      * @param offsetDateTime The OffsetDateTime to convert
-     * @return LocalDateTime or null if input is null
+     * @return LocalDateTime representing the same instant in the system default timezone, or null if input is null
      */
     public static LocalDateTime toLocalDateTime(OffsetDateTime offsetDateTime) {
         if (offsetDateTime == null) {
             return null;
         }
-        return offsetDateTime.toLocalDateTime();
+        // Convert to system default timezone while preserving the instant in time
+        return offsetDateTime.atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime();
     }
     
     /**
@@ -193,7 +194,7 @@ public final class ServiceUtils {
                 .userCode(hold.getWallet() != null && hold.getWallet().getUserSnapshot() != null ? 
                     hold.getWallet().getUserSnapshot().getUserCode() : null)
                 .remainingAmount(hold.getRemainingAmount())
-                .status(mapHoldStatus(hold.getStatus()))
+                .status(HoldResponse.StatusEnum.valueOf(hold.getStatus().name()))
                 .transactionId(hold.getTransaction_id())
                 .description(hold.getDescription())
                 .expiresAt(toOffsetDateTime(hold.getExpiresAt()))
@@ -205,15 +206,6 @@ public final class ServiceUtils {
             log.error("Error mapping WalletHold to HoldResponse: {}", e.getMessage(), e);
             throw e;
         }
-    }
-    
-    /**
-     * Maps HoldStatus enum to string representation
-     * @param status The HoldStatus to map
-     * @return String representation of the status
-     */
-    private static String mapHoldStatus(HoldStatus status) {
-        return status != null ? status.name() : null;
     }
     
     public static boolean isValidStatusTransition(HoldStatus currentStatus, HoldStatus newStatus) {

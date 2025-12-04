@@ -73,11 +73,7 @@ public class WalletHold {
         return status == HoldStatus.ACTIVE && expiresAt.isAfter(LocalDateTime.now());
     }
 
-    // Getters and setters for all fields
-    // ...
-
     @PrePersist
-    @PreUpdate
     public void prePersist() {
         if (this.remainingAmount == null) {
             this.remainingAmount = this.originalAmount;
@@ -86,4 +82,10 @@ public class WalletHold {
         this.updatedAt = LocalDateTime.now();
         this.expiresAt = LocalDateTime.now().plusMinutes(10);
     }
+
+    @PreUpdate
+    public void preUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
+
 }

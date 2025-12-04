@@ -52,17 +52,13 @@ public class HoldServiceImpl implements HoldService {
                 .orElseThrow(() -> WalletException.notFound(
                     String.format(WalletConstants.WALLET_NOT_FOUND, request.getUserCode())));
 
-            // Validate wallet status and available balance
-            if (wallet.getWalletStatus() != HoldStatus.ACTIVE) {
-                throw WalletException.badRequest(
-                    String.format(WalletConstants.WALLET_INACTIVE, request.getUserCode()));
-            }
-
+            // Validate wallet status, currency and available balance using validateHold
             Double amount = request.getAmount();
-            Double walletBalance = wallet.getAvailableBalance();
-            if (walletBalance < amount) {
-                throw WalletException.insufficientFunds(WalletConstants.INSUFFICIENT_FUNDS);
+            if (!validateHold(wallet.getId(), amount, wallet.getCurrency())) {
+                throw WalletException.badRequest("Hold validation failed");
             }
+            
+            Double walletBalance = wallet.getAvailableBalance();
             Double newBalanceAfterHoldPlaced = walletBalance - amount;
 
             // Create and save the hold
@@ -125,7 +121,6 @@ public class HoldServiceImpl implements HoldService {
             
             // Update hold status
             hold.setStatus(HoldStatus.CAPTURED);
-            hold.setUpdatedAt(LocalDateTime.now());
             wallet.setBalance(wallet.getBalance()-hold.getCapturedAmount());
             WalletHold updatedHold = holdRepository.save(hold);
             
@@ -147,11 +142,19 @@ public class HoldServiceImpl implements HoldService {
     @Transactional
     public HoldResponse releaseHold(String holdId, ReleaseHoldRequest request) {
         try {
-            WalletHold hold = getValidHoldForRelease(holdId, request);
+            if (request == null || StringUtils.isBlank(request.getReason())) {
+                throw WalletException.badRequest("Release reason is required");
+            }
+
+            WalletHold hold = getValidHoldForRelease(holdId);
+            // Validate hold status
+            if (hold.getStatus() != HoldStatus.ACTIVE) {
+                throw WalletException.badRequest(
+                        String.format(WalletConstants.HOLD_ALREADY_PROCESSED, hold.getStatus().name().toLowerCase()));
+            }
             
             // Update hold status
             hold.setStatus(HoldStatus.RELEASED);
-            hold.setUpdatedAt(LocalDateTime.now());
             hold.setDescription(request.getReason());
             hold.setMetadata((JsonNode) request.getMetadata());
             WalletHold releasedHold = holdRepository.save(hold);
@@ -194,44 +197,25 @@ public class HoldServiceImpl implements HoldService {
         }
     }
     
-    private WalletHold getValidHoldForRelease(String holdId, ReleaseHoldRequest request) {
+    private WalletHold getValidHoldForRelease(String holdId) {
         if (StringUtils.isBlank(holdId)) {
             throw WalletException.badRequest("Hold ID is required");
         }
-        
-        if (request == null || StringUtils.isBlank(request.getReason())) {
-            throw WalletException.badRequest("Release reason is required");
-        }
-        
-        WalletHold hold = holdRepository.findByHoldId(holdId)
+
+        return holdRepository.findByHoldId(holdId)
             .orElseThrow(() -> WalletException.notFound(
                 String.format(WalletConstants.HOLD_NOT_FOUND, holdId)));
-        
-        // Validate hold status
-        if (hold.getStatus() != HoldStatus.ACTIVE) {
-            throw WalletException.badRequest(
-                String.format(WalletConstants.HOLD_ALREADY_PROCESSED, hold.getStatus().name().toLowerCase()));
-        }
-        
-        return hold;
     }
 
     @Override
     @Transactional
     public HoldResponse extendHold(String holdId, ExtendHoldRequest request) {
         try {
-            if (StringUtils.isBlank(holdId)) {
-                throw WalletException.badRequest(WalletConstants.INVALID_REQUEST);
-            }
-            
             if (request == null || request.getNewExpiresAt() == null) {
                 throw WalletException.badRequest("New expiry time is required");
             }
-            
-            WalletHold hold = holdRepository.findByHoldId(holdId)
-                .orElseThrow(() -> WalletException.notFound(
-                    String.format(WalletConstants.HOLD_NOT_FOUND, holdId)));
-            
+            WalletHold hold = getValidHoldForRelease(holdId);
+
             // Validate hold status
             if (hold.getStatus() == HoldStatus.EXPIRED || hold.getStatus() == HoldStatus.RELEASED) {
                 throw WalletException.badRequest(
@@ -239,13 +223,13 @@ public class HoldServiceImpl implements HoldService {
             }
 
             LocalDateTime newExpiry = ServiceUtils.toLocalDateTime(request.getNewExpiresAt());
+            log.info("New expiry time: {} and current time: {}", newExpiry, LocalDateTime.now());
             if (newExpiry.isBefore(LocalDateTime.now())) {
                 throw WalletException.badRequest("New expiry time must be in the future");
             }
 
             // Update hold
             hold.setExpiresAt(newExpiry);
-            hold.setUpdatedAt(LocalDateTime.now());
             hold.setDescription(request.getReason());
             WalletHold updatedHold = holdRepository.save(hold);
 
@@ -265,48 +249,52 @@ public class HoldServiceImpl implements HoldService {
     @Transactional
     public HoldResponse adjustHold(String holdId, AdjustHoldRequest request) {
         try {
-            if (StringUtils.isBlank(holdId)) {
-                throw WalletException.badRequest(WalletConstants.INVALID_REQUEST);
-            }
-            
             if (request == null || request.getNewAmount() == null) {
                 throw WalletException.badRequest(WalletConstants.INVALID_AMOUNT);
             }
-            
-            WalletHold hold = holdRepository.findByHoldId(holdId)
-                .orElseThrow(() -> WalletException.notFound(
-                    String.format(WalletConstants.HOLD_NOT_FOUND, holdId)));
-            
-            // Validate hold status
-            if (hold.getStatus() == HoldStatus.EXPIRED || hold.getStatus() == HoldStatus.RELEASED) {
-                throw WalletException.badRequest(
-                    String.format(WalletConstants.HOLD_ALREADY_PROCESSED, hold.getStatus().name().toLowerCase()));
-            }
-            
-            Double newAmount = request.getNewAmount();
-            if (newAmount <= 0) {
-                throw WalletException.badRequest(WalletConstants.INVALID_AMOUNT);
-            }
-            
+
+            WalletHold hold = getValidHoldForRelease(holdId);
             Wallet wallet = hold.getWallet();
-            double amountDifference = newAmount - hold.getCapturedAmount();
-            
-            // If increasing the hold amount, check available balance
-            if (amountDifference > 0 && wallet.getAvailableBalance() < amountDifference) {
-                throw WalletException.insufficientFunds(WalletConstants.INSUFFICIENT_FUNDS);
+
+            // Validate hold status
+            if (hold.getStatus() != HoldStatus.ACTIVE) {
+                throw WalletException.badRequest(
+                        String.format(WalletConstants.HOLD_ALREADY_PROCESSED, hold.getStatus().name().toLowerCase()));
             }
-            
-            // Update hold amount and wallet's available balance
+
+            // Get the current and new amounts
+            Double currentAmount = hold.getCapturedAmount();
+            Double newAmount = request.getNewAmount();
+
+            if (newAmount <= 0) {
+                throw WalletException.badRequest("New amount must be greater than zero");
+            }
+
+            Double amountDifference = newAmount - currentAmount;
+
+            // If increasing the hold amount, validate there's enough available balance
+            if (amountDifference > 0) {
+                if (!validateHold(wallet.getId(), amountDifference, wallet.getCurrency())) {
+                    throw WalletException.badRequest("Insufficient available balance for hold adjustment");
+                }
+                // Reduce available balance by the difference
+                wallet.setAvailableBalance(wallet.getAvailableBalance() - amountDifference);
+            } else if (amountDifference < 0) {
+                // If decreasing, return the difference to available balance
+                wallet.setAvailableBalance(wallet.getAvailableBalance() + Math.abs(amountDifference));
+            }
+
+            // Update the hold with new amount
             hold.setCapturedAmount(newAmount);
-            wallet.setAvailableBalance(wallet.getAvailableBalance() - amountDifference);
-            hold.setUpdatedAt(LocalDateTime.now());
-            hold.setDescription(request.getReason());
+            hold.setRemainingAmount(wallet.getAvailableBalance());
+
+            // Save the updated hold and wallet
             WalletHold updatedHold = holdRepository.save(hold);
             walletRepository.save(wallet);
-            
+
             log.info(WalletConstants.LOG_HOLD_ADJUSTED, holdId, newAmount);
             return constructHoldResponse(updatedHold);
-            
+
         } catch (WalletException ex) {
             log.error("Error adjusting hold: {}", ex.getMessage(), ex);
             throw ex;
@@ -487,13 +475,23 @@ public class HoldServiceImpl implements HoldService {
         }
     }
 
-    public BigDecimal getTotalHeldAmount(Long walletId) {
+    /**
+     * Calculates the total amount currently held across all active holds for a wallet.
+     * This method will be useful for:
+     * 1. Displaying the total held amount in the wallet dashboard
+     * 2. Validating available balance before placing new holds
+     * 3. Financial reporting and reconciliation
+     * 4. Calculating the actual available balance (total balance - held amount)
+     *
+     * @param walletId The ID of the wallet
+     * @return Total amount held for the wallet
+     */
+    public Double getTotalHeldAmount(Long walletId) {
         try {
-            Double totalHeld = holdRepository.sumPendingHoldsByWalletId(walletId);
-            return BigDecimal.valueOf(totalHeld != null ? totalHeld : 0.0);
+            return holdRepository.sumPendingHoldsByWalletId(walletId);
         } catch (Exception ex) {
             log.error("Error calculating total held amount: {}", ex.getMessage(), ex);
-            return BigDecimal.ZERO;
+            return 0.0;
         }
     }
 
