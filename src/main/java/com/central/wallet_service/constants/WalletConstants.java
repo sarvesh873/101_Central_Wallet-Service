@@ -6,7 +6,7 @@ public final class WalletConstants {
     }
 
     // Common
-    public static final String INTERNAL_SERVER_ERROR = "An unexpected error occurred";
+    public static final String INTERNAL_SERVER_ERROR = "Transaction processing failed";
     public static final String INVALID_REQUEST = "Invalid request";
     public static final String OPERATION_NOT_ALLOWED = "Operation not allowed";
     

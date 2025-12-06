@@ -34,7 +34,7 @@ public class WalletServiceImpl implements WalletService {
     private final WalletRepository walletRepository;
 
     @Autowired
-    private  WalletUserSnapshotRepository userSnapshotRepository;
+    private final WalletUserSnapshotRepository userSnapshotRepository;
 
 
     @Override
