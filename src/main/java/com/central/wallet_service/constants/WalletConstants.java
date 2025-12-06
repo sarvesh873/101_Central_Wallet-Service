@@ -6,7 +6,7 @@ public final class WalletConstants {
     }
 
     // Common
-    public static final String INTERNAL_SERVER_ERROR = "An unexpected error occurred";
+    public static final String INTERNAL_SERVER_ERROR = "Transaction processing failed";
     public static final String INVALID_REQUEST = "Invalid request";
     public static final String OPERATION_NOT_ALLOWED = "Operation not allowed";
     
@@ -18,7 +18,6 @@ public final class WalletConstants {
     
     // Transaction related
     public static final String INVALID_AMOUNT = "Amount must be greater than zero";
-    public static final String INSUFFICIENT_FUNDS = "Insufficient funds in wallet";
 
     
     // Hold related
@@ -73,8 +72,5 @@ public final class WalletConstants {
     public static final int DEFAULT_PAGE_SIZE = 20;
     public static final int MAX_PAGE_SIZE = 100;
     
-    // Date formats
-    public static final String DATE_FORMAT = "yyyy-MM-dd";
-    public static final String DATE_TIME_FORMAT = "yyyy-MM-dd HH:mm:ss";
-    public static final String TIMESTAMP_FORMAT = "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+    public static final String INSUFFICIENT_FUNDS = "Insufficient funds in wallet for user:{}. Current balance:{}, Required:{}";
 }

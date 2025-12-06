@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 @Slf4j
 @RestController
-public class WalletTransactionContoller implements WalletTransactionsApi {
+public class WalletTransactionController implements WalletTransactionsApi {
 
     @Autowired
     private WalletService walletService;

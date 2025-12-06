@@ -1,16 +1,8 @@
 package com.central.wallet_service.model;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.JdbcTypeCode;
-import org.hibernate.type.SqlTypes;
-
 import java.time.LocalDateTime;
-import java.util.Objects;
-import java.util.UUID;
-
 @Entity
 @Data
 @AllArgsConstructor
@@ -58,26 +50,24 @@ public class WalletHold {
     @Column(columnDefinition = "TEXT")
     private String description;
 
-    @Column(columnDefinition = "jsonb")
-    @JdbcTypeCode(SqlTypes.JSON)
-    private JsonNode metadata;
+    @Column(name = "is_adjusted", nullable = false, columnDefinition = "BOOLEAN DEFAULT false")
+    private boolean isAdjusted = false;
 
-    @Column(name = "capture_transaction_id")
-    private String captureTransactionId;
+    @Column(name = "adjustment_reason", columnDefinition = "TEXT")
+    private String adjustmentReason;
 
-    @Column(name = "release_transaction_id")
-    private String releaseTransactionId;
+    @Column(name = "previous_amount")
+    private Double previousAmount;
+
+    @Column(name = "adjusted_at")
+    private LocalDateTime adjustedAt;
 
     // Helper method to check if hold is active
     public boolean isActive() {
         return status == HoldStatus.ACTIVE && expiresAt.isAfter(LocalDateTime.now());
     }
 
-    // Getters and setters for all fields
-    // ...
-
     @PrePersist
-    @PreUpdate
     public void prePersist() {
         if (this.remainingAmount == null) {
             this.remainingAmount = this.originalAmount;
@@ -86,4 +76,10 @@ public class WalletHold {
         this.updatedAt = LocalDateTime.now();
         this.expiresAt = LocalDateTime.now().plusMinutes(10);
     }
+
+    @PreUpdate
+    public void preUpdate() {
+        this.updatedAt = LocalDateTime.now();
+    }
+
 }

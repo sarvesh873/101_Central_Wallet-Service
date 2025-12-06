@@ -1,7 +1,11 @@
 package com.central.wallet_service.specifications;
 
+import com.central.wallet_service.model.Wallet;
 import com.central.wallet_service.model.WalletHold;
 import com.central.wallet_service.model.HoldStatus;
+import com.central.wallet_service.model.WalletUserSnapshot;
+import jakarta.persistence.criteria.Join;
+import org.hibernate.query.common.JoinType;
 import org.springframework.data.jpa.domain.Specification;
 import org.apache.commons.lang3.StringUtils;
 
@@ -23,10 +27,14 @@ public class WalletHoldSpecifications {
             if (StringUtils.isBlank(userCode)) {
                 return criteriaBuilder.conjunction();
             }
-            return criteriaBuilder.equal(
-                root.get("wallet").get("userCode"), 
-                userCode
-            );
+            // Join WalletHold with Wallet
+            Join<WalletHold, Wallet> walletJoin = root.join("wallet");
+
+            // Join Wallet with WalletUserSnapshot
+            Join<Wallet, WalletUserSnapshot> userSnapshotJoin = walletJoin.join("userSnapshot");
+
+            // Match on userCode
+            return criteriaBuilder.equal(userSnapshotJoin.get("userCode"), userCode);
         };
     }
 

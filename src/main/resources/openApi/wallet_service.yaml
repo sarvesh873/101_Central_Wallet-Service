@@ -137,11 +137,6 @@ components:
           type: string
           description: The currency code (e.g., USD, EUR).
           example: 'INR'
-        metadata:
-          type: object
-          additionalProperties:
-            type: string
-          description: Additional metadata for the hold.
 
     HoldResponse:
       type: object
@@ -197,17 +192,6 @@ components:
         description:
           type: string
           description: Description of the hold.
-        metadata:
-          type: object
-          additionalProperties:
-            type: string
-          description: Additional metadata for the hold.
-        captureTransactionId:
-          type: string
-          description: ID of the capture transaction if any.
-        releaseTransactionId:
-          type: string
-          description: ID of the release transaction if any.
 
     CaptureRequest:
       type: object
@@ -218,11 +202,6 @@ components:
           type: string
           description: The ID of the hold to be captured.
           example: 'hold-xyz789'
-        amount:
-          type: number
-          format: double
-          description: The amount to capture. Must be less than or equal to the held amount. If omitted, the entire held amount is captured.
-          example: 45.00
         transaction_id:
           type: string
           description: External reference ID for the capture.
@@ -293,25 +272,15 @@ components:
     WalletTransactionRequest:
       type: object
       required:
-        - userCode
         - amount
         - currency
-        - transactionId
       properties:
-        userCode:
-          type: string
-          description: The user code associated with the transaction.
-          example: 'user-123'
         amount:
           type: number
           format: double
           description: The monetary amount to transfer.
           minimum: 0.01
           example: 50.00
-        transactionId:
-          type: string
-          description: The unique identifier for the transaction.
-          example: '123e4567-e89b-12d3-a456-426614174000'
         currency:
           type: string
           description: The currency code (e.g., USD, EUR).
@@ -355,10 +324,6 @@ components:
           enum: [COMPLETED, FAILED, DECLINED, EXPIRED]
           description: Status of the transaction processing.
           example: COMPLETED
-        transactionId:
-          type: string
-          description: The unique identifier for the transaction.
-          example: '123e4567-e89b-12d3-a456-426614174000'
         username:
           type: string
           description: The username of the user associated with the transaction.
