@@ -1,6 +1,6 @@
 package com.central.wallet_service.utils;
 
-import com.central.wallet_service.exception.WalletException;
+
 import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.model.WalletHold;
 import org.openapitools.model.HoldResponse;
@@ -37,11 +37,11 @@ public final class ServiceUtils {
      * Validates a date range (fromDate must be before toDate)
      * @param fromDate Start date
      * @param toDate End date
-     * @throws WalletException if the date range is invalid
+     * @throws IllegalArgumentException if the date range is invalid
      */
     public static void validateDateRange(OffsetDateTime fromDate, OffsetDateTime toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
-            throw WalletException.badRequest("From date must be before or equal to To date");
+            throw new IllegalArgumentException("From date must be before or equal to To date");
         }
     }
     
@@ -95,11 +95,11 @@ public final class ServiceUtils {
     /**
      * Validates if the amount is positive
      * @param amount The amount to validate
-     * @throws WalletException if amount is null or not positive
+     * @throws IllegalArgumentException if amount is null or not positive
      */
     public static void validatePositiveAmount(BigDecimal amount) {
         if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new WalletException(HttpStatus.BAD_REQUEST, "Amount must be greater than zero");
+            throw new IllegalArgumentException("Amount must be greater than zero");
         }
     }
     
@@ -115,11 +115,11 @@ public final class ServiceUtils {
      * Validates that the target currency matches the expected currency
      * @param expected The expected currency code
      * @param actual The actual currency code to validate
-     * @throws WalletException if currencies don't match
+     * @throws IllegalArgumentException if currencies don't match
      */
     public static void validateCurrency(String expected, String actual) {
         if (expected == null || !expected.equals(actual)) {
-            throw WalletException.badRequest("Currency mismatch. Expected: " + expected + ", Actual: " + actual);
+            throw new IllegalArgumentException("Currency mismatch. Expected: " + expected + ", Actual: " + actual);
         }
     }
 

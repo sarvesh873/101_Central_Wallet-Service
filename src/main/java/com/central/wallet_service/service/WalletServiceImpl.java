@@ -1,7 +1,9 @@
 package com.central.wallet_service.service;
 
 import com.central.wallet_service.constants.WalletConstants;
-import com.central.wallet_service.exception.WalletException;
+import com.central.wallet_service.exception.DuplicateTransactionException;
+import com.central.wallet_service.exception.InsufficientFundsException;
+import com.central.wallet_service.exception.WalletNotFoundException;
 import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.model.Wallet;
 import com.central.wallet_service.model.WalletUserSnapshot;
@@ -13,6 +15,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.openapitools.model.*;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.jpa.JpaSystemException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
@@ -41,7 +45,7 @@ public class WalletServiceImpl implements WalletService {
             log.info("Creating wallet for user: {} with {}", request.getUserCode(), request);
             
             if (walletExists(request.getUserCode())) {
-                throw WalletException.badRequest(
+                throw new IllegalStateException(
                     String.format(WalletConstants.WALLET_ALREADY_EXISTS, request.getUserCode()));
             }
             // First, save the user snapshot
@@ -67,19 +71,23 @@ public class WalletServiceImpl implements WalletService {
                     .build();
                 
             Wallet savedWallet = walletRepository.save(wallet);
-            
-            // Update the user snapshot's wallets set if needed
-//            userSnapshot.getWallets().add(savedWallet);
-//            userSnapshotRepository.save(userSnapshot);
+
             log.info(WalletConstants.LOG_WALLET_CREATED, request.getUserCode());
             return mapToWalletResponse(savedWallet);
             
-        } catch (WalletException ex) {
-            log.error("Error creating wallet: {}", ex.getMessage(), ex);
+        } catch (DataIntegrityViolationException ex) {
+            String errorMsg = "Error creating wallet - database constraint violation: " + ex.getMostSpecificCause().getMessage();
+            log.error(errorMsg, ex);
+            if (ex.getMostSpecificCause().getMessage().toLowerCase().contains("duplicate")) {
+                throw new DuplicateTransactionException("A wallet with this user code already exists");
+            }
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR, ex);
+        } catch (IllegalStateException | IllegalArgumentException ex) {
+            log.error("Validation error creating wallet: {}", ex.getMessage(), ex);
             throw ex;
         } catch (Exception ex) {
             log.error("Unexpected error creating wallet: {}", ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR, ex);
         }
     }
 
@@ -87,26 +95,29 @@ public class WalletServiceImpl implements WalletService {
     public WalletResponse getWalletByUserCode(String userCode) {
         try {
             if (StringUtils.isBlank(userCode)) {
-                throw WalletException.badRequest(WalletConstants.INVALID_USER_CODE);
+                throw new IllegalArgumentException(WalletConstants.INVALID_USER_CODE);
             }
             
             Wallet wallet = walletRepository.findByUserCode(userCode)
-                .orElseThrow(() -> WalletException.notFound(
+                .orElseThrow(() -> new WalletNotFoundException(
                     String.format(WalletConstants.WALLET_NOT_FOUND, userCode)));
                     
             if (wallet.getWalletStatus() != HoldStatus.ACTIVE) {
-                throw WalletException.badRequest(
+                throw new IllegalStateException(
                     String.format(WalletConstants.WALLET_INACTIVE, userCode));
             }
             
             return mapToWalletResponse(wallet);
             
-        } catch (WalletException ex) {
+        } catch (IllegalArgumentException | IllegalStateException | WalletNotFoundException ex) {
             log.error("Error retrieving wallet: {}", ex.getMessage(), ex);
             throw ex;
+        } catch (JpaSystemException ex) {
+            log.error("Database error retrieving wallet: {}", ex.getMessage(), ex);
+            throw new RuntimeException("Error accessing wallet data. Please try again later.", ex);
         } catch (Exception ex) {
             log.error("Unexpected error retrieving wallet: {}", ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR, ex);
         }
     }
 
@@ -117,18 +128,15 @@ public class WalletServiceImpl implements WalletService {
             validateTransactionRequest(userCode, request);
             
             Wallet wallet = walletRepository.findByUserCode(userCode)
-                .orElseThrow(() -> WalletException.notFound(
+                .orElseThrow(() -> new WalletNotFoundException(
                     String.format(WalletConstants.WALLET_NOT_FOUND, userCode)));
                     
             if (wallet.getWalletStatus() != HoldStatus.ACTIVE) {
-                throw WalletException.badRequest(
+                throw new IllegalStateException(
                     String.format(WalletConstants.WALLET_INACTIVE, userCode));
             }
 
-            
             double amount = request.getAmount();
-
-
             double newBalance = wallet.getBalance() + amount;
             double newAvailableBalance = wallet.getAvailableBalance() + amount;
 
@@ -142,12 +150,22 @@ public class WalletServiceImpl implements WalletService {
             log.info(WalletConstants.DEPOSIT_SUCCESSFUL + " for user: {}", userCode);
             return createTransactionResponse(updatedWallet, amount, WalletConstants.TRANSACTION_TYPE_DEPOSIT);
             
-        } catch (WalletException ex) {
-            log.error(WalletConstants.TRANSACTION_FAILED + " for user {}: {}", userCode, ex.getMessage(), ex);
+        } catch (DataIntegrityViolationException ex) {
+            String errorMsg = "Transaction failed - database error: " + ex.getMostSpecificCause().getMessage();
+            log.error("{} for user {}: {}", WalletConstants.TRANSACTION_FAILED, userCode, errorMsg, ex);
+            if (ex.getMostSpecificCause().getMessage().toLowerCase().contains("duplicate")) {
+                throw new DuplicateTransactionException("A transaction with this ID already exists");
+            }
+            throw new RuntimeException("Transaction failed due to a database error. Please try again.", ex);
+        } catch (IllegalArgumentException | IllegalStateException | WalletNotFoundException ex) {
+            log.error("{} for user {}: {}", WalletConstants.TRANSACTION_FAILED, userCode, ex.getMessage(), ex);
             throw ex;
+        } catch (JpaSystemException ex) {
+            log.error("Database error processing transaction for user {}: {}", userCode, ex.getMessage(), ex);
+            throw new RuntimeException("Error processing transaction. Please try again later.", ex);
         } catch (Exception ex) {
-            log.error("{} for user {}: {}", WalletConstants.INTERNAL_SERVER_ERROR, userCode, ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            log.error("Unexpected error processing transaction for user {}: {}", userCode, ex.getMessage(), ex);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR, ex);
         }
     }
 
@@ -158,17 +176,22 @@ public class WalletServiceImpl implements WalletService {
             validateTransactionRequest(userCode, request);
             
             Wallet wallet = walletRepository.findByUserCode(userCode)
-                .orElseThrow(() -> WalletException.notFound(
+                .orElseThrow(() -> new WalletNotFoundException(
                     String.format(WalletConstants.WALLET_NOT_FOUND, userCode)));
             
             if (wallet.getWalletStatus() != HoldStatus.ACTIVE) {
-                throw WalletException.badRequest(
+                throw new IllegalStateException(
                     String.format(WalletConstants.WALLET_INACTIVE, userCode));
             }
             
             double amount = request.getAmount().doubleValue();
             if (wallet.getAvailableBalance() < amount) {
-                throw WalletException.badRequest(WalletConstants.INSUFFICIENT_FUNDS);
+                throw new InsufficientFundsException(
+                    String.format("Insufficient funds. Available: %.2f, Required: %.2f",
+                        wallet.getAvailableBalance(),
+                        amount
+                    )
+                );
             }
 
             double newBalance = wallet.getBalance() - amount;
@@ -183,29 +206,29 @@ public class WalletServiceImpl implements WalletService {
             
             return createTransactionResponse(updatedWallet, amount, "WITHDRAWAL");
             
-        } catch (WalletException ex) {
+        } catch (IllegalArgumentException | IllegalStateException | WalletNotFoundException | InsufficientFundsException ex) {
             log.error("Error processing withdrawal for user {}: {}", userCode, ex.getMessage(), ex);
             throw ex;
         } catch (Exception ex) {
             log.error("Unexpected error processing withdrawal for user {}: {}", userCode, ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR);
         }
     }
 
     public Double getWalletBalance(String userCode) {
         try {
             Wallet wallet = walletRepository.findByUserCode(userCode)
-                .orElseThrow(() -> WalletException.notFound(
+                .orElseThrow(() -> new WalletNotFoundException(
                     String.format(WalletConstants.WALLET_NOT_FOUND, userCode)));
 
             return wallet.getBalance();
 
-        } catch (WalletException ex) {
+        } catch (WalletNotFoundException ex) {
             log.error("Error getting balance for user {}: {}", userCode, ex.getMessage(), ex);
             throw ex;
         } catch (Exception ex) {
             log.error("Unexpected error getting balance for user {}: {}", userCode, ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -213,17 +236,17 @@ public class WalletServiceImpl implements WalletService {
     public Double getAvailableBalance(String userCode) {
         try {
             Wallet wallet = walletRepository.findByUserCode(userCode)
-                .orElseThrow(() -> WalletException.notFound(
+                .orElseThrow(() -> new WalletNotFoundException(
                     String.format(WalletConstants.WALLET_NOT_FOUND, userCode)));
-                    
+            
             return wallet.getAvailableBalance();
             
-        } catch (WalletException ex) {
+        } catch (WalletNotFoundException ex) {
             log.error("Error getting available balance for user {}: {}", userCode, ex.getMessage(), ex);
             throw ex;
         } catch (Exception ex) {
             log.error("Unexpected error getting available balance for user {}: {}", userCode, ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -234,7 +257,7 @@ public class WalletServiceImpl implements WalletService {
             return walletRepository.existsByUserCode(userCode);
         } catch (Exception ex) {
             log.error("Error checking if wallet exists for user {}: {}", userCode, ex.getMessage(), ex);
-            throw WalletException.internalServerError(WalletConstants.INTERNAL_SERVER_ERROR);
+            throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR);
         }
     }
 
@@ -243,29 +266,29 @@ public class WalletServiceImpl implements WalletService {
     
     private void validateWalletRequest(WalletCreateRequest request) {
         if (request == null) {
-            throw WalletException.badRequest(WalletConstants.INVALID_REQUEST);
+            throw new IllegalArgumentException(WalletConstants.INVALID_REQUEST);
         }
         
         if (StringUtils.isBlank(request.getUserCode())) {
-            throw WalletException.badRequest(WalletConstants.INVALID_USER_CODE);
+            throw new IllegalArgumentException(WalletConstants.INVALID_USER_CODE);
         }
         
         if (request.getCurrency() == null) {
-            throw WalletException.badRequest(WalletConstants.INVALID_CURRENCY);
+            throw new IllegalArgumentException(WalletConstants.INVALID_CURRENCY);
         }
     }
     
     private void validateTransactionRequest(String userCode, WalletTransactionRequest request) {
         if (StringUtils.isBlank(userCode)) {
-            throw WalletException.badRequest(WalletConstants.INVALID_USER_CODE);
+            throw new IllegalArgumentException(WalletConstants.INVALID_USER_CODE);
         }
         
         if (request == null) {
-            throw WalletException.badRequest(WalletConstants.INVALID_REQUEST);
+            throw new IllegalArgumentException(WalletConstants.INVALID_REQUEST);
         }
         
         if (request.getAmount() == null || request.getAmount() <= 0) {
-            throw WalletException.badRequest(WalletConstants.INVALID_AMOUNT);
+            throw new IllegalArgumentException(WalletConstants.INVALID_AMOUNT);
         }
 
     }
