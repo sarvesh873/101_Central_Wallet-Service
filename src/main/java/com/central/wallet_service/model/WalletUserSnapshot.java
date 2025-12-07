@@ -33,11 +33,11 @@ public class WalletUserSnapshot {
     @Column(name = "username")
     private String username;
 
-    @Column(nullable = false, length = 50)
+    @Column( length = 50)
     @Email
     private String email;
 
-    @Column(nullable = false, length = 15)
+    @Column( length = 15)
     private String phoneNumber;
 
     @Column(name = "created_at")

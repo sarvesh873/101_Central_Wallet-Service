@@ -51,9 +51,6 @@ public class WalletServiceImpl implements WalletService {
             // First, save the user snapshot
             WalletUserSnapshot userSnapshot = WalletUserSnapshot.builder()
                     .userCode(request.getUserCode())
-                    .username(request.getUserCode()) // You might want to set this properly
-                    .email(request.getUserCode() + "@example.com") // You might want to set this properly
-                    .phoneNumber("+1234567890") // You might want to set this properly
                     .build();
             
             // Save the user snapshot first

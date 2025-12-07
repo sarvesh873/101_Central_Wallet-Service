@@ -52,18 +52,27 @@ public class GrpcWalletServiceImpl extends WalletServiceGrpc.WalletServiceImplBa
             org.openapitools.model.WalletResponse response = walletService.createWallet(createRequest);
 
             // Convert to gRPC response
-            WalletResponseGRPC grpcResponse = WalletResponseGRPC.newBuilder()
-                .setWalletId(response.getWalletId())
-                .setUserCode(response.getUserCode())
-                .setBalance(response.getBalance())
-                .setAvailableBalance(response.getAvailableBalance())
-                .setCurrency(response.getCurrency())
-                .setStatus(response.getStatus())
-                .setUsername(response.getUsername())
-                .setEmail(response.getEmail())
-                .setPhoneNumber(response.getPhoneNumber())
-                .setCreatedAt(convertToTimestamp(response.getCreatedAt()))
-                .build();
+            WalletResponseGRPC.Builder builder = WalletResponseGRPC.newBuilder()
+                    .setWalletId(response.getWalletId())
+                    .setUserCode(response.getUserCode())
+                    .setBalance(response.getBalance())
+                    .setAvailableBalance(response.getAvailableBalance())
+                    .setCurrency(response.getCurrency())
+                    .setStatus(response.getStatus())
+                    .setCreatedAt(convertToTimestamp(response.getCreatedAt()));
+
+            // Safely set optional fields
+            if (response.getUsername() != null) {
+                builder.setUsername(response.getUsername());
+            }
+            if (response.getEmail() != null) {
+                builder.setEmail(response.getEmail());
+            }
+            if (response.getPhoneNumber() != null) {
+                builder.setPhoneNumber(response.getPhoneNumber());
+            }
+
+            WalletResponseGRPC grpcResponse = builder.build();
 
             responseObserver.onNext(grpcResponse);
             responseObserver.onCompleted();
