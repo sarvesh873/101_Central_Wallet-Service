@@ -1,8 +1,11 @@
 package com.central.wallet_service.grpc;
 
 import com.central.wallet.*;
+import com.central.wallet_service.dto.*;
+import com.central.wallet_service.dto.adapter.request.*;
 import com.central.wallet_service.exception.HoldNotFoundException;
 import com.central.wallet_service.exception.WalletNotFoundException;
+import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.service.HoldService;
 import com.google.protobuf.Timestamp;
 import com.google.rpc.Code;
@@ -53,17 +56,11 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             }
 
             // Create hold request
-            HoldRequest holdRequest = new HoldRequest()
-                .userCode(request.getUserCode())
-                .amount(request.getAmount())
-                .description(request.getDescription())
-                .transactionId(request.getTransactionId());
-
-            // Process hold
-            HoldResponse response = holdService.placeHold(holdRequest);
+            PlaceHoldRequestDto requestDto = new GrpcPlaceHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.placeHold(requestDto);
 
             // Convert and send response
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (WalletNotFoundException e) {
@@ -89,14 +86,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            CaptureRequest captureRequest = new CaptureRequest()
-                .holdId(request.getHoldId())
-                .description(request.getDescription())
-                .releaseRemainder(request.getReleaseRemainder());
+            CaptureRequestDto requestDto = new GrpcCaptureRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.captureHoldFunds(requestDto);
 
-            HoldResponse response = holdService.captureHoldFunds(captureRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -120,13 +113,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            ReleaseHoldRequest releaseRequest = new ReleaseHoldRequest()
-                .reason(request.getReason())
-                .metadata(request.getMetadataMap());
+            ReleaseHoldRequestDto requestDto = new GrpcReleaseHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.releaseHold(request.getHoldId(), requestDto);
 
-            HoldResponse response = holdService.releaseHold(request.getHoldId(), releaseRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         }
@@ -153,8 +143,8 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            HoldResponse response = holdService.getHold(request.getHoldId());
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            HoldResponseDto responseDto = holdService.getHold(request.getHoldId());
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -187,7 +177,7 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             );
 
             // Call service
-            Page<HoldResponse> holdsPage = holdService.listHolds(
+            Page<HoldResponseDto> holdsPage = holdService.listHolds(
                 request.getUserCode(),
                 request.getStatus(),
                 request.getCurrency(),
@@ -228,13 +218,9 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            ExtendHoldRequest extendRequest = new ExtendHoldRequest()
-                .newExpiresAt(toOffsetDateTime(request.getNewExpiresAt()))
-                .reason(request.getReason());
-
-            HoldResponse response = holdService.extendHold(request.getHoldId(), extendRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            ExtendHoldRequestDto requestDto = new GrpcExtendHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.extendHold(request.getHoldId(), requestDto);
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -255,13 +241,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            AdjustHoldRequest adjustRequest = new AdjustHoldRequest()
-                .newAmount(request.getNewAmount())
-                .reason(request.getReason());
+            AdjustHoldRequestDto requestDto = new GrpcAdjustHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.adjustHold(request.getHoldId(), requestDto);
 
-            HoldResponse response = holdService.adjustHold(request.getHoldId(), adjustRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -277,17 +260,17 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
     }
 
     // Helper methods
-    private HoldResponseGRPC convertToHoldResponseGRPC(HoldResponse response) {
+    private HoldResponseGRPC convertToHoldResponseGRPC(HoldResponseDto response) {
         if (response == null) {
             return null;
         }
 
         return HoldResponseGRPC.newBuilder()
             .setHoldId(response.getHoldId())
-            .setTransactionId(response.getTransactionId())
+//            .setTransactionId(response.getTransactionId())
             .setUserCode(response.getUserCode())
-            .setStatus(HoldResponseGRPC.HoldStatusGRPC.valueOf(response.getStatus().name()))
-            .setOriginalAmount(response.getOriginalAmount())
+                .setStatus(HoldResponseGRPC.HoldStatusGRPC.valueOf(response.getStatus()))
+                .setOriginalAmount(response.getOriginalAmount())
             .setRemainingAmount(response.getRemainingAmount())
             .setCapturedAmount(response.getCapturedAmount())
             .setCreatedAt(convertToTimestamp(response.getCreatedAt()))

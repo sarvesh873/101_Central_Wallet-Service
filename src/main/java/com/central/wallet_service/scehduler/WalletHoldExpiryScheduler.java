@@ -25,7 +25,7 @@ public class WalletHoldExpiryScheduler {
     @Autowired
     private WalletRepository walletRepository;
 
-    @Scheduled(fixedRate = 300000) // Run every 5 minutes
+    @Scheduled(fixedRate = 120000) // Run every 2 minutes
     @Transactional
     public int processExpiredHolds() {
         try {

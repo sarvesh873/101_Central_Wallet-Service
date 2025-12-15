@@ -1,7 +1,9 @@
 package com.central.wallet_service.service;
 
-import com.central.wallet_service.model.Wallet;
-import org.openapitools.model.*;
+import com.central.wallet_service.dto.WalletCreateRequestDto;
+import com.central.wallet_service.dto.WalletResponseDto;
+import com.central.wallet_service.dto.WalletTransactionRequestDto;
+import com.central.wallet_service.dto.WalletTransactionResponseDto;
 
 public interface WalletService {
     
@@ -10,14 +12,14 @@ public interface WalletService {
      * @param walletCreateRequest Contains wallet creation details
      * @return Created wallet details
      */
-    WalletResponse createWallet(WalletCreateRequest walletCreateRequest);
+    WalletResponseDto createWallet(WalletCreateRequestDto walletCreateRequest);
     
     /**
      * Retrieves wallet details by user code
      * @param userCode Unique identifier for the user
      * @return Wallet details
      */
-    WalletResponse getWalletByUserCode(String userCode);
+    WalletResponseDto getWalletByUserCode(String userCode);
     
     /**
      * Deposits funds into a wallet
@@ -25,7 +27,7 @@ public interface WalletService {
      * @param request Transaction details
      * @return Transaction response
      */
-    WalletTransactionResponse depositFunds(String userCode, WalletTransactionRequest request);
+    WalletTransactionResponseDto depositFunds(String userCode, WalletTransactionRequestDto request);
     
     /**
      * Withdraws funds from a wallet
@@ -33,7 +35,7 @@ public interface WalletService {
      * @param request Transaction details
      * @return Transaction response
      */
-    WalletTransactionResponse withdrawFunds(String userCode, WalletTransactionRequest request);
+    WalletTransactionResponseDto withdrawFunds(String userCode, WalletTransactionRequestDto request);
     
     /**
      * Gets the available balance (balance minus holds) of a wallet

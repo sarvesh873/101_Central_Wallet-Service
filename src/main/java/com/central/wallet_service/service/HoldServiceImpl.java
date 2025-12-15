@@ -1,6 +1,8 @@
 package com.central.wallet_service.service;
 
 import com.central.wallet_service.constants.WalletConstants;
+import com.central.wallet_service.dto.*;
+import com.central.wallet_service.dto.adapter.response.HoldResponseAdapter;
 import com.central.wallet_service.exception.DuplicateTransactionException;
 import com.central.wallet_service.exception.InsufficientFundsException;
 import com.central.wallet_service.exception.HoldNotFoundException;
@@ -29,7 +31,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static com.central.wallet_service.constants.WalletConstants.INSUFFICIENT_FUNDS;
-import static com.central.wallet_service.utils.ServiceUtils.constructHoldResponse;
 import static com.central.wallet_service.utils.ServiceUtils.generateHoldReference;
 
 @Slf4j
@@ -47,7 +48,7 @@ public class HoldServiceImpl implements HoldService {
 
     @Override
     @Transactional(rollbackFor = {Exception.class})
-    public HoldResponse placeHold(HoldRequest request) {
+    public HoldResponseDto placeHold(PlaceHoldRequestDto request) {
         try {
             // Input validation
             if (request == null) {
@@ -116,7 +117,7 @@ public class HoldServiceImpl implements HoldService {
                 log.info(WalletConstants.LOG_HOLD_PLACED, 
                     amount, wallet.getCurrency(), wallet.getId());
 
-                return constructHoldResponse(savedHold);
+                return new HoldResponseAdapter(savedHold);
                 
             } catch (DataIntegrityViolationException ex) {
                 String errorMsg = "Database constraint violation while placing hold: " + ex.getMostSpecificCause().getMessage();
@@ -149,7 +150,7 @@ public class HoldServiceImpl implements HoldService {
 
     @Override
     @Transactional(rollbackFor = {Exception.class})
-    public HoldResponse captureHoldFunds(CaptureRequest request) {
+    public HoldResponseDto captureHoldFunds(CaptureRequestDto request) {
         try {
             // Input validation
             if (request == null || StringUtils.isBlank(request.getHoldId())) {
@@ -210,7 +211,7 @@ public class HoldServiceImpl implements HoldService {
                 log.info(WalletConstants.LOG_HOLD_CAPTURED, 
                     hold.getCapturedAmount(), wallet.getCurrency(), hold.getId());
                     
-                return constructHoldResponse(updatedHold);
+                return new HoldResponseAdapter(updatedHold);
                 
             } catch (DataIntegrityViolationException ex) {
                 String errorMsg = "Database constraint violation while capturing hold: " + ex.getMostSpecificCause().getMessage();
@@ -243,7 +244,7 @@ public class HoldServiceImpl implements HoldService {
 
     @Override
     @Transactional
-    public HoldResponse releaseHold(String holdId, ReleaseHoldRequest request) {
+    public HoldResponseDto releaseHold(String holdId, ReleaseHoldRequestDto request) {
         try {
             // Input validation
             if (StringUtils.isBlank(holdId)) {
@@ -297,7 +298,7 @@ public class HoldServiceImpl implements HoldService {
                 walletRepository.save(wallet);
                 
                 log.info("{}: {}", WalletConstants.LOG_HOLD_RELEASED, holdId);
-                return constructHoldResponse(releasedHold);
+                return new HoldResponseAdapter(releasedHold);
                 
             } catch (Exception ex) {
                 log.error("Error while processing hold release: {}", ex.getMessage(), ex);
@@ -317,7 +318,7 @@ public class HoldServiceImpl implements HoldService {
     }
 
     // Helper methods will be implemented in the next chunk
-    private void validateHoldRequest(HoldRequest request) {
+    private void validateHoldRequest(PlaceHoldRequestDto request) {
         if (request == null) {
             throw new IllegalArgumentException("Hold request cannot be null");
         }
@@ -364,9 +365,9 @@ public class HoldServiceImpl implements HoldService {
 
     @Override
     @Transactional
-    public HoldResponse extendHold(String holdId, ExtendHoldRequest request) {
+    public HoldResponseDto extendHold(String holdId, ExtendHoldRequestDto request) {
         try {
-            if (request == null || request.getNewExpiresAt() == null) {
+            if (request == null || request.getNewExpiryTime() == null) {
                 throw new IllegalArgumentException("New expiry time is required");
             }
             WalletHold hold = getValidHoldForRelease(holdId);
@@ -377,7 +378,7 @@ public class HoldServiceImpl implements HoldService {
                     String.format(WalletConstants.HOLD_ALREADY_PROCESSED, hold.getStatus().name().toLowerCase()));
             }
 
-            LocalDateTime newExpiry = ServiceUtils.toLocalDateTime(request.getNewExpiresAt());
+            LocalDateTime newExpiry = ServiceUtils.toLocalDateTime(request.getNewExpiryTime());
             log.info("New expiry time: {} and current time: {}", newExpiry, LocalDateTime.now());
             if (newExpiry.isBefore(LocalDateTime.now())) {
                 throw new IllegalArgumentException("New expiry time must be in the future");
@@ -389,7 +390,7 @@ public class HoldServiceImpl implements HoldService {
             WalletHold updatedHold = holdRepository.save(hold);
 
             log.info(WalletConstants.LOG_HOLD_EXTENDED, holdId, newExpiry);
-            return constructHoldResponse(updatedHold);
+            return new HoldResponseAdapter(updatedHold);
 
         } catch (IllegalArgumentException | IllegalStateException | HoldNotFoundException ex) {
             log.error("Error extending hold: {}", ex.getMessage(), ex);
@@ -402,7 +403,7 @@ public class HoldServiceImpl implements HoldService {
 
     @Override
     @Transactional(rollbackFor = {Exception.class})
-    public HoldResponse adjustHold(String holdId, AdjustHoldRequest request) {
+    public HoldResponseDto adjustHold(String holdId, AdjustHoldRequestDto request) {
         try {
             if (request == null || request.getNewAmount() == null) {
                 throw new IllegalArgumentException(WalletConstants.INVALID_AMOUNT);
@@ -452,7 +453,7 @@ public class HoldServiceImpl implements HoldService {
             walletRepository.save(wallet);
 
             log.info(WalletConstants.LOG_HOLD_ADJUSTED, holdId, newAmount);
-            return constructHoldResponse(updatedHold);
+            return new HoldResponseAdapter(updatedHold);
 
         } catch (IllegalArgumentException | IllegalStateException | HoldNotFoundException | InsufficientFundsException ex) {
             log.error("Error adjusting hold: {}", ex.getMessage(), ex);
@@ -464,7 +465,7 @@ public class HoldServiceImpl implements HoldService {
     }
 
     @Override
-    public HoldResponse getHold(String holdId) {
+    public HoldResponseDto getHold(String holdId) {
         try {
             if (StringUtils.isBlank(holdId)) {
                 log.warn("{} - Hold ID is empty", WalletConstants.INVALID_REQUEST);
@@ -480,7 +481,7 @@ public class HoldServiceImpl implements HoldService {
                 });
 
             log.debug("Retrieved hold with ID: {}", holdId);
-            return constructHoldResponse(hold);
+            return new HoldResponseAdapter(hold);
 
         } catch (IllegalArgumentException ex) {
             log.error("Error getting hold: {}", ex.getMessage(), ex);
@@ -493,7 +494,7 @@ public class HoldServiceImpl implements HoldService {
     }
 
     @Override
-    public Page<HoldResponse> listHolds(
+    public Page<HoldResponseDto> listHolds(
             String userCode,
             String status,
             String currency,
@@ -576,10 +577,10 @@ public class HoldServiceImpl implements HoldService {
             log.debug("Found {} items", holdsPage.getTotalElements());
 
             // Map the results to HoldResponse objects
-            List<HoldResponse> responses = new ArrayList<>();
+            List<HoldResponseDto> responses = new ArrayList<>();
             for (WalletHold hold : holdsPage.getContent()) {
                 try {
-                    HoldResponse response = constructHoldResponse(hold);
+                    HoldResponseDto response = new HoldResponseAdapter(hold);
                     if (response != null) {
                         responses.add(response);
                     }

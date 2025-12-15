@@ -1,6 +1,7 @@
 package com.central.wallet_service.utils;
 
 
+import com.central.wallet_service.dto.HoldResponseDto;
 import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.model.WalletHold;
 import org.openapitools.model.HoldResponse;
@@ -125,44 +126,44 @@ public final class ServiceUtils {
 
 
 
-    /**
-     * Maps a WalletHold entity to a HoldResponse DTO using builder pattern
-     * @param hold The WalletHold entity to map
-     * @return HoldResponse DTO or null if input is null
-     */
-    public static HoldResponse constructHoldResponse(WalletHold hold) {
-        if (hold == null) {
-            log.warn("Attempted to map null WalletHold to HoldResponse");
-            return null;
-        }
-        
-        try {
-            String holdId = hold.getHoldId();
-            String walletId = hold.getWallet() != null ?
-                (hold.getWallet().getId() != null ? hold.getWallet().getId().toString() : "null") : "null";
-            
-            log.debug("Mapping WalletHold to HoldResponse - Hold ID: {}, Wallet ID: {}", holdId, walletId);
-            
-            return HoldResponse.builder()
-                .holdId(holdId)
-                .userCode(hold.getWallet() != null && hold.getWallet().getUserSnapshot() != null ? 
-                    hold.getWallet().getUserSnapshot().getUserCode() : null)
-                .remainingAmount(hold.getRemainingAmount())
-                    .originalAmount(hold.getOriginalAmount())
-                    .capturedAmount(hold.getCapturedAmount())
-                .status(HoldResponse.StatusEnum.valueOf(hold.getStatus().name()))
-                .transactionId(hold.getTransaction_id())
-                .description(hold.getDescription())
-                .expiresAt(toOffsetDateTime(hold.getExpiresAt()))
-                .createdAt(toOffsetDateTime(hold.getCreatedAt()))
-                .updatedAt(toOffsetDateTime(hold.getUpdatedAt()))
-                .build();
-                
-        } catch (Exception e) {
-            log.error("Error mapping WalletHold to HoldResponse: {}", e.getMessage(), e);
-            throw e;
-        }
-    }
+//    /**
+//     * Maps a WalletHold entity to a HoldResponse DTO using builder pattern
+//     * @param hold The WalletHold entity to map
+//     * @return HoldResponse DTO or null if input is null
+//     */
+//    public static HoldResponseDto constructHoldResponse(WalletHold hold) {
+//        if (hold == null) {
+//            log.warn("Attempted to map null WalletHold to HoldResponse");
+//            return null;
+//        }
+//
+//        try {
+//            String holdId = hold.getHoldId();
+//            String walletId = hold.getWallet() != null ?
+//                (hold.getWallet().getId() != null ? hold.getWallet().getId().toString() : "null") : "null";
+//
+//            log.debug("Mapping WalletHold to HoldResponse - Hold ID: {}, Wallet ID: {}", holdId, walletId);
+//
+//            return HoldResponseDto.builder()
+//                .holdId(holdId)
+//                .userCode(hold.getWallet() != null && hold.getWallet().getUserSnapshot() != null ?
+//                    hold.getWallet().getUserSnapshot().getUserCode() : null)
+//                .remainingAmount(hold.getRemainingAmount())
+//                    .originalAmount(hold.getOriginalAmount())
+//                    .capturedAmount(hold.getCapturedAmount())
+//                .status(HoldResponse.StatusEnum.valueOf(hold.getStatus().name()))
+//                .transactionId(hold.getTransaction_id())
+//                .description(hold.getDescription())
+//                .expiresAt(toOffsetDateTime(hold.getExpiresAt()))
+//                .createdAt(toOffsetDateTime(hold.getCreatedAt()))
+//                .updatedAt(toOffsetDateTime(hold.getUpdatedAt()))
+//                .build();
+//
+//        } catch (Exception e) {
+//            log.error("Error mapping WalletHold to HoldResponse: {}", e.getMessage(), e);
+//            throw e;
+//        }
+//    }
     
     public static boolean isValidStatusTransition(HoldStatus currentStatus, HoldStatus newStatus) {
         // If the status hasn't changed, it's always valid
