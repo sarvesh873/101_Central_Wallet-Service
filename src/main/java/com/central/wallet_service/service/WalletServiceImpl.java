@@ -293,40 +293,4 @@ public class WalletServiceImpl implements WalletService {
         }
 
     }
-    
-    private WalletResponse mapToWalletResponse(Wallet wallet) {
-        if (wallet == null) {
-            return null;
-        }
-        
-        WalletUserSnapshot userSnapshot = wallet.getUserSnapshot();
-        if (userSnapshot == null) {
-            throw new IllegalStateException("User snapshot not found for wallet with ID: " + wallet.getId());
-        }
-            
-        return new WalletResponse()
-            .walletId(wallet.getId())
-            .userCode(userSnapshot.getUserCode())
-            .username(userSnapshot.getUsername())
-            .email(userSnapshot.getEmail())
-            .phoneNumber(userSnapshot.getPhoneNumber())
-            .balance(wallet.getBalance())
-            .availableBalance(wallet.getAvailableBalance())
-            .currency(wallet.getCurrency())
-            .status(wallet.getWalletStatus().name())
-            .createdAt(ServiceUtils.toOffsetDateTime(wallet.getCreatedAt()));
-    }
-    
-    private WalletTransactionResponseDto createTransactionResponse(Wallet wallet, double amount, String type) {
-        if (wallet == null) {
-            return null;
-        }
-
-        WalletUserSnapshot userSnapshot = wallet.getUserSnapshot();
-        if (userSnapshot == null) {
-            throw new IllegalStateException("User snapshot not found for wallet with ID: " + wallet.getId());
-        }
-
-        return new WalletTransactionResponseAdapter(wallet, amount, type);
-    }
 }

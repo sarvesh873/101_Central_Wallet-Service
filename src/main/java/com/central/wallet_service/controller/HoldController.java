@@ -14,8 +14,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
+import com.central.wallet_service.utils.ServiceUtils;
 
 import java.time.OffsetDateTime;
+
+import static com.central.wallet_service.utils.ServiceUtils.toHoldResponse;
 
 @Slf4j
 @RestController
@@ -68,7 +71,7 @@ public class HoldController implements HoldsApi {
 
         ListHolds200Response response = new ListHolds200Response();
         response.setItems(holdsPage.getContent().stream()
-                .map(this::toHoldResponse)
+                .map(ServiceUtils::toHoldResponse)
                 .toList());
         response.setPagination(new PaginationResponse()
                 .currentPage(holdsPage.getNumber() + 1)
@@ -93,23 +96,5 @@ public class HoldController implements HoldsApi {
         ReleaseHoldRequestDto requestDto = new RestReleaseHoldRequestAdapter(releaseHoldRequest);
         HoldResponseDto responseDto = holdService.releaseHold(holdId, requestDto);
         return ResponseEntity.ok(toHoldResponse(responseDto));
-    }
-
-    public HoldResponse toHoldResponse(HoldResponseDto dto) {
-        if (dto == null) {
-            return null;
-        }
-
-        return new HoldResponse()
-                .holdId(dto.getHoldId())
-                .userCode(dto.getUserCode())
-                .status(HoldResponse.StatusEnum.fromValue(dto.getStatus()))
-                .originalAmount(dto.getOriginalAmount())
-                .remainingAmount(dto.getRemainingAmount())
-                .capturedAmount(dto.getCapturedAmount())
-                .createdAt(dto.getCreatedAt())
-                .updatedAt(dto.getUpdatedAt())
-                .expiresAt(dto.getExpiresAt())
-                .description(dto.getDescription());
     }
 }

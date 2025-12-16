@@ -5,7 +5,6 @@ import com.central.wallet_service.dto.*;
 import com.central.wallet_service.dto.adapter.request.*;
 import com.central.wallet_service.exception.HoldNotFoundException;
 import com.central.wallet_service.exception.WalletNotFoundException;
-import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.service.HoldService;
 import com.google.protobuf.Timestamp;
 import com.google.rpc.Code;
@@ -27,6 +26,8 @@ import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.stream.Collectors;
+import com.central.wallet_service.utils.ServiceUtils;
+import static com.central.wallet_service.utils.ServiceUtils.*;
 
 @Slf4j
 @GrpcService
@@ -189,7 +190,7 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             // Convert and send response
             ListHoldsResponseGRPC response = ListHoldsResponseGRPC.newBuilder()
                 .addAllItems(holdsPage.getContent().stream()
-                    .map(this::convertToHoldResponseGRPC)
+                    .map(ServiceUtils::convertToHoldResponseGRPC)
                     .collect(Collectors.toList()))
                 .setPagination(PaginationResponseGRPC.newBuilder()
                     .setCurrentPage(holdsPage.getNumber() + 1)
@@ -257,48 +258,6 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             log.error("Error adjusting hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);
         }
-    }
-
-    // Helper methods
-    private HoldResponseGRPC convertToHoldResponseGRPC(HoldResponseDto response) {
-        if (response == null) {
-            return null;
-        }
-
-        return HoldResponseGRPC.newBuilder()
-            .setHoldId(response.getHoldId())
-//            .setTransactionId(response.getTransactionId())
-            .setUserCode(response.getUserCode())
-                .setStatus(HoldResponseGRPC.HoldStatusGRPC.valueOf(response.getStatus()))
-                .setOriginalAmount(response.getOriginalAmount())
-            .setRemainingAmount(response.getRemainingAmount())
-            .setCapturedAmount(response.getCapturedAmount())
-            .setCreatedAt(convertToTimestamp(response.getCreatedAt()))
-            .setExpiresAt(convertToTimestamp(response.getExpiresAt()))
-            .setUpdatedAt(convertToTimestamp(response.getUpdatedAt()))
-            .setDescription(response.getDescription())
-            .build();
-    }
-
-    private Timestamp convertToTimestamp(OffsetDateTime offsetDateTime) {
-        if (offsetDateTime == null) {
-            return Timestamp.getDefaultInstance();
-        }
-        Instant instant = offsetDateTime.toInstant();
-        return Timestamp.newBuilder()
-            .setSeconds(instant.getEpochSecond())
-            .setNanos(instant.getNano())
-            .build();
-    }
-
-    private OffsetDateTime toOffsetDateTime(Timestamp timestamp) {
-        if (timestamp == null) {
-            return null;
-        }
-        return OffsetDateTime.ofInstant(
-            Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()),
-            ZoneOffset.UTC
-        );
     }
 
     private <T> void handleError(StreamObserver<T> responseObserver, Code code, String message) {

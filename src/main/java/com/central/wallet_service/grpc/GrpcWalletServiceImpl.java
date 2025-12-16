@@ -186,22 +186,6 @@ public class GrpcWalletServiceImpl extends WalletServiceGrpc.WalletServiceImplBa
         }
     }
 
-    // Helper Methods
-
-    /**
-     * Converts OffsetDateTime to protobuf Timestamp
-     */
-    private static Timestamp convertToTimestamp(OffsetDateTime offsetDateTime) {
-        if (offsetDateTime == null) {
-            return Timestamp.getDefaultInstance();
-        }
-        Instant instant = offsetDateTime.toInstant();
-        return Timestamp.newBuilder()
-            .setSeconds(instant.getEpochSecond())
-            .setNanos(instant.getNano())
-            .build();
-    }
-
     /**
      * Handles gRPC error responses
      */

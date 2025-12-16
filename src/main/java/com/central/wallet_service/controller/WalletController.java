@@ -12,8 +12,8 @@ import org.openapitools.model.WalletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import static com.central.wallet_service.utils.ServiceUtils.toWalletResponse;
+
 
 @Slf4j
 @RestController
@@ -33,20 +33,6 @@ public class WalletController implements WalletsApi {
     public ResponseEntity<WalletResponse> getWalletByUserCode(String userCode) {
         WalletResponseDto responseDto = walletService.getWalletByUserCode(userCode);
         return ResponseEntity.ok(toWalletResponse(responseDto));
-    }
-    
-    private WalletResponse toWalletResponse(WalletResponseDto responseDto) {
-        return new WalletResponse()
-            .walletId(responseDto.getWalletId())
-            .userCode(responseDto.getUserCode())
-            .balance(responseDto.getBalance())
-            .status(responseDto.getStatus())
-            .currency(responseDto.getCurrency())
-            .availableBalance(responseDto.getAvailableBalance())
-            .createdAt(responseDto.getCreatedAt())
-            .username(responseDto.getUsername())
-            .email(responseDto.getEmail())
-            .phoneNumber(responseDto.getPhoneNumber());
     }
 
 }

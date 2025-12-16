@@ -1,21 +1,24 @@
 package com.central.wallet_service.utils;
 
 
+import com.central.wallet.HoldResponseGRPC;
 import com.central.wallet_service.dto.HoldResponseDto;
+import com.central.wallet_service.dto.WalletResponseDto;
+import com.central.wallet_service.dto.WalletTransactionResponseDto;
 import com.central.wallet_service.model.HoldStatus;
 import com.central.wallet_service.model.WalletHold;
+import com.google.protobuf.Timestamp;
 import org.openapitools.model.HoldResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.openapitools.model.WalletResponse;
+import org.openapitools.model.WalletTransactionResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneId;
+import java.time.*;
 import java.util.UUID;
 
 /**
@@ -94,17 +97,6 @@ public final class ServiceUtils {
     }
     
     /**
-     * Validates if the amount is positive
-     * @param amount The amount to validate
-     * @throws IllegalArgumentException if amount is null or not positive
-     */
-    public static void validatePositiveAmount(BigDecimal amount) {
-        if (amount == null || amount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Amount must be greater than zero");
-        }
-    }
-    
-    /**
      * Generates a unique transaction reference
      * @return A unique transaction reference string
      */
@@ -123,47 +115,6 @@ public final class ServiceUtils {
             throw new IllegalArgumentException("Currency mismatch. Expected: " + expected + ", Actual: " + actual);
         }
     }
-
-
-
-//    /**
-//     * Maps a WalletHold entity to a HoldResponse DTO using builder pattern
-//     * @param hold The WalletHold entity to map
-//     * @return HoldResponse DTO or null if input is null
-//     */
-//    public static HoldResponseDto constructHoldResponse(WalletHold hold) {
-//        if (hold == null) {
-//            log.warn("Attempted to map null WalletHold to HoldResponse");
-//            return null;
-//        }
-//
-//        try {
-//            String holdId = hold.getHoldId();
-//            String walletId = hold.getWallet() != null ?
-//                (hold.getWallet().getId() != null ? hold.getWallet().getId().toString() : "null") : "null";
-//
-//            log.debug("Mapping WalletHold to HoldResponse - Hold ID: {}, Wallet ID: {}", holdId, walletId);
-//
-//            return HoldResponseDto.builder()
-//                .holdId(holdId)
-//                .userCode(hold.getWallet() != null && hold.getWallet().getUserSnapshot() != null ?
-//                    hold.getWallet().getUserSnapshot().getUserCode() : null)
-//                .remainingAmount(hold.getRemainingAmount())
-//                    .originalAmount(hold.getOriginalAmount())
-//                    .capturedAmount(hold.getCapturedAmount())
-//                .status(HoldResponse.StatusEnum.valueOf(hold.getStatus().name()))
-//                .transactionId(hold.getTransaction_id())
-//                .description(hold.getDescription())
-//                .expiresAt(toOffsetDateTime(hold.getExpiresAt()))
-//                .createdAt(toOffsetDateTime(hold.getCreatedAt()))
-//                .updatedAt(toOffsetDateTime(hold.getUpdatedAt()))
-//                .build();
-//
-//        } catch (Exception e) {
-//            log.error("Error mapping WalletHold to HoldResponse: {}", e.getMessage(), e);
-//            throw e;
-//        }
-//    }
     
     public static boolean isValidStatusTransition(HoldStatus currentStatus, HoldStatus newStatus) {
         // If the status hasn't changed, it's always valid
@@ -198,5 +149,94 @@ public final class ServiceUtils {
                 return false;
         }
     }
+
+    public static HoldResponse toHoldResponse(HoldResponseDto dto) {
+        if (dto == null) {
+            return null;
+        }
+
+        return new HoldResponse()
+                .holdId(dto.getHoldId())
+                .userCode(dto.getUserCode())
+                .status(HoldResponse.StatusEnum.fromValue(dto.getStatus()))
+                .originalAmount(dto.getOriginalAmount())
+                .remainingAmount(dto.getRemainingAmount())
+                .capturedAmount(dto.getCapturedAmount())
+                .createdAt(dto.getCreatedAt())
+                .updatedAt(dto.getUpdatedAt())
+                .expiresAt(dto.getExpiresAt())
+                .description(dto.getDescription());
+    }
+
+    public static WalletResponse toWalletResponse(WalletResponseDto responseDto) {
+        return new WalletResponse()
+                .walletId(responseDto.getWalletId())
+                .userCode(responseDto.getUserCode())
+                .balance(responseDto.getBalance())
+                .status(responseDto.getStatus())
+                .currency(responseDto.getCurrency())
+                .availableBalance(responseDto.getAvailableBalance())
+                .createdAt(responseDto.getCreatedAt())
+                .username(responseDto.getUsername())
+                .email(responseDto.getEmail())
+                .phoneNumber(responseDto.getPhoneNumber());
+    }
+
+    public static WalletTransactionResponse toWalletTransactionResponse(WalletTransactionResponseDto dto) {
+        return new WalletTransactionResponse()
+                .walletId(dto.getWalletId())
+                .transactionType(WalletTransactionResponse.TransactionTypeEnum.fromValue(dto.getTransactionType().name()))
+                .processedAmount(dto.getProcessedAmount())
+                .newBalance(dto.getNewBalance())
+                .newAvailableBalance(dto.getNewAvailableBalance())
+                .userCode(dto.getUserCode())
+                .status(WalletTransactionResponse.StatusEnum.fromValue(dto.getStatus().name()))
+                .username(dto.getUsername())
+                .email(dto.getEmail())
+                .phoneNumber(dto.getPhoneNumber());
+    }
+
+    // Helper methods Grpc
+    public static HoldResponseGRPC convertToHoldResponseGRPC(HoldResponseDto response) {
+        if (response == null) {
+            return null;
+        }
+
+        return HoldResponseGRPC.newBuilder()
+                .setHoldId(response.getHoldId())
+                .setTransactionId(response.getTransaction_id())
+                .setUserCode(response.getUserCode())
+                .setStatus(HoldResponseGRPC.HoldStatusGRPC.valueOf(response.getStatus()))
+                .setOriginalAmount(response.getOriginalAmount())
+                .setRemainingAmount(response.getRemainingAmount())
+                .setCapturedAmount(response.getCapturedAmount())
+                .setCreatedAt(convertToTimestamp(response.getCreatedAt()))
+                .setExpiresAt(convertToTimestamp(response.getExpiresAt()))
+                .setUpdatedAt(convertToTimestamp(response.getUpdatedAt()))
+                .setDescription(response.getDescription())
+                .build();
+    }
+
+    public static Timestamp convertToTimestamp(OffsetDateTime offsetDateTime) {
+        if (offsetDateTime == null) {
+            return Timestamp.getDefaultInstance();
+        }
+        Instant instant = offsetDateTime.toInstant();
+        return Timestamp.newBuilder()
+                .setSeconds(instant.getEpochSecond())
+                .setNanos(instant.getNano())
+                .build();
+    }
+
+    public static OffsetDateTime toOffsetDateTime(Timestamp timestamp) {
+        if (timestamp == null) {
+            return null;
+        }
+        return OffsetDateTime.ofInstant(
+                Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()),
+                ZoneOffset.UTC
+        );
+    }
+
 }
 
