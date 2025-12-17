@@ -3,10 +3,8 @@ package com.central.wallet_service.grpc;
 import com.central.wallet.*;
 import com.central.wallet_service.dto.*;
 import com.central.wallet_service.dto.adapter.request.*;
-import com.central.wallet_service.exception.HoldNotFoundException;
-import com.central.wallet_service.exception.WalletNotFoundException;
+import com.central.wallet_service.exception.*;
 import com.central.wallet_service.service.HoldService;
-import com.google.protobuf.Timestamp;
 import com.google.rpc.Code;
 import com.google.rpc.Status;
 import io.grpc.protobuf.StatusProto;
@@ -20,11 +18,6 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.dao.DataIntegrityViolationException;
-
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.stream.Collectors;
 import com.central.wallet_service.utils.ServiceUtils;
 import static com.central.wallet_service.utils.ServiceUtils.*;
@@ -73,7 +66,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
         } catch (IllegalArgumentException | IllegalStateException e) {
             log.error("Invalid hold request: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INVALID_ARGUMENT, e.getMessage());
-        } catch (Exception e) {
+        } catch (InsufficientFundsException e) {
+            log.error("Insufficient funds for adjustment: {}", e.getMessage(), e);
+            handleError(responseObserver, Code.FAILED_PRECONDITION, "Insufficient funds");
+        }catch (Exception e) {
             log.error("Error placing hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);
         }
@@ -100,6 +96,9 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             log.error("Invalid hold state for capture: {}", e.getMessage(), e);
             handleError(responseObserver, Code.FAILED_PRECONDITION, 
                 e.getMessage().contains("expired") ? HOLD_EXPIRED : HOLD_NOT_ACTIVE);
+        } catch (InsufficientFundsException e) {
+            log.error("Insufficient funds for adjustment: {}", e.getMessage(), e);
+            handleError(responseObserver, Code.FAILED_PRECONDITION, "Insufficient funds");
         } catch (Exception e) {
             log.error("Error capturing hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);
@@ -254,6 +253,9 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
         } catch (IllegalStateException e) {
             log.error("Invalid hold state for adjustment: {}", e.getMessage(), e);
             handleError(responseObserver, Code.FAILED_PRECONDITION, e.getMessage());
+        } catch (InsufficientFundsException e) {
+            log.error("Insufficient funds for adjustment: {}", e.getMessage(), e);
+            handleError(responseObserver, Code.FAILED_PRECONDITION, "Insufficient funds");
         } catch (Exception e) {
             log.error("Error adjusting hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);

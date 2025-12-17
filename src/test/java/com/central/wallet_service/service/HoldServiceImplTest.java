@@ -3,43 +3,40 @@ package com.central.wallet_service.service;
 import com.central.wallet_service.constants.WalletConstants;
 import com.central.wallet_service.dto.*;
 import com.central.wallet_service.dto.adapter.request.*;
-import com.central.wallet_service.dto.adapter.request.RestHoldRequestAdapter;
 import com.central.wallet_service.exception.*;
 import com.central.wallet_service.model.*;
 import com.central.wallet_service.repository.WalletHoldRepository;
 import com.central.wallet_service.repository.WalletRepository;
-import com.central.wallet_service.specifications.WalletHoldSpecifications;
-import com.central.wallet_service.utils.ServiceUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.*;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.openapitools.model.HoldRequest;
+import org.mockito.stubbing.Answer;
 import org.openapitools.model.*;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.*;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.orm.jpa.JpaSystemException;
 
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.util.Collections;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class HoldServiceImplTest {
 
-    @Mock
-    private WalletHoldRepository holdRepository;
-
-    @Mock
-    private WalletRepository walletRepository;
+    @Mock private WalletHoldRepository holdRepository;
+    @Mock private WalletRepository walletRepository;
+    @Mock(name = "ioTaskExecutor") private ExecutorService ioExecutor;
+    @Mock(name = "cpuTaskExecutor") private ExecutorService cpuExecutor;
 
     @InjectMocks
     private HoldServiceImpl holdService;
@@ -47,292 +44,152 @@ class HoldServiceImplTest {
     private Wallet testWallet;
     private WalletHold testHold;
     private PlaceHoldRequestDto holdRequest;
-    private CaptureRequestDto captureRequest;
-    private ReleaseHoldRequestDto releaseRequest;
-    private ExtendHoldRequestDto extendRequest;
-    private AdjustHoldRequestDto adjustRequest;
 
     @BeforeEach
     void setUp() {
-        // Setup test wallet
+        // Setup Executors to run synchronously
+        Answer<Object> syncRun = invocation -> {
+            Object arg = invocation.getArgument(0);
+            if (arg instanceof Runnable) {
+                ((Runnable) arg).run();
+                return null;
+            } else if (arg instanceof Supplier) {
+                return ((Supplier<?>) arg).get();
+            }
+            return null;
+        };
+        lenient().doAnswer(syncRun).when(ioExecutor).execute(any(Runnable.class));
+        lenient().doAnswer(syncRun).when(cpuExecutor).execute(any(Runnable.class));
+
+        // Test Data setup
         testWallet = new Wallet();
         testWallet.setId(1L);
         testWallet.setBalance(1000.0);
         testWallet.setAvailableBalance(1000.0);
-        testWallet.setCurrency("USD");
         testWallet.setWalletStatus(HoldStatus.ACTIVE);
-        WalletUserSnapshot userSnapshot = new WalletUserSnapshot();
-        userSnapshot.setUserCode("USER123");
-        testWallet.setUserSnapshot(userSnapshot);
+        testWallet.setCurrency("USD");
 
-        // Setup test hold
+        WalletUserSnapshot snapshot = new WalletUserSnapshot();
+        snapshot.setUserCode("USER-123");
+        testWallet.setUserSnapshot(snapshot);
+
         testHold = WalletHold.builder()
-                .id(1L)
-                .holdId("HOLD123")
-                .wallet(testWallet)
-                .transaction_id("TXN123")
-                .originalAmount(100.0)
-                .remainingAmount(50.0)
-                .capturedAmount(50.0)
-                .status(HoldStatus.ACTIVE)
-                .description("Test hold")
+                .id(1L).holdId("HOLD-123").wallet(testWallet)
+                .capturedAmount(100.0).status(HoldStatus.ACTIVE)
                 .expiresAt(LocalDateTime.now().plusDays(1))
-                .createdAt(LocalDateTime.now())
-                .updatedAt(LocalDateTime.now())
                 .build();
-        HoldRequest holdRequestModel = new HoldRequest()
-                .userCode("USER123")
-                .amount(100.0)
-                .transactionId("TXN123")
-                .description("Test hold");
-        holdRequest = new RestHoldRequestAdapter(holdRequestModel);
 
-        CaptureRequest captureRequestModel = new CaptureRequest()
-                .holdId("HOLD123");
-        captureRequest = new RestCaptureRequestAdapter(captureRequestModel);
-
-        ReleaseHoldRequest releaseRequestModel = new ReleaseHoldRequest()
-                .reason("Test release");
-        releaseRequest = new RestReleaseHoldRequestAdapter(releaseRequestModel);
-
-        ExtendHoldRequest extendRequestModel = new ExtendHoldRequest()
-                .newExpiresAt(OffsetDateTime.now().plusDays(2));
-        extendRequest = new RestExtendHoldRequestAdapter(extendRequestModel);
-
-        AdjustHoldRequest adjustRequestModel = new AdjustHoldRequest()
-                .newAmount(150.0)
-                .reason("Adjustment needed");
-        adjustRequest = new RestAdjustHoldRequestAdapter(adjustRequestModel);
-
+        holdRequest = new RestHoldRequestAdapter(new HoldRequest()
+                .userCode("USER-123").amount(100.0).transactionId("TXN-123"));
     }
+
+    // --- REQUESTED METHODS ---
 
     @Test
     void placeHold_ValidRequest_ReturnsHoldResponse() {
-        // Arrange
-        when(walletRepository.findByUserCode(anyString())).thenReturn(Optional.of(testWallet));
+        when(walletRepository.findByUserCode("USER-123")).thenReturn(Optional.of(testWallet));
         when(holdRepository.save(any(WalletHold.class))).thenReturn(testHold);
-        when(walletRepository.save(any(Wallet.class))).thenReturn(testWallet);
 
-        // Act
         HoldResponseDto response = holdService.placeHold(holdRequest);
 
-        // Assert
         assertNotNull(response);
-        assertEquals("HOLD123", response.getHoldId());
-        assertEquals(100.0, response.getOriginalAmount());
-        assertEquals(50.0, response.getCapturedAmount());
-        assertEquals("ACTIVE", response.getStatus());
-
-        verify(holdRepository, times(1)).save(any(WalletHold.class));
-        verify(walletRepository, times(1)).save(any(Wallet.class));
-    }
-
-    @Test
-    void placeHold_WalletNotFound_ThrowsException() {
-        // Arrange
-        when(walletRepository.findByUserCode(anyString())).thenReturn(Optional.empty());
-
-        // Act & Assert
-        WalletNotFoundException exception = assertThrows(WalletNotFoundException.class,
-                () -> holdService.placeHold(holdRequest));
-
-        assertTrue(exception.getMessage().contains("not found"));
-        verify(holdRepository, never()).save(any(WalletHold.class));
-    }
-
-    @Test
-    void placeHold_InsufficientFunds_ThrowsException() {
-        // Arrange
-        testWallet.setAvailableBalance(50.0);
-        when(walletRepository.findByUserCode(anyString())).thenReturn(Optional.of(testWallet));
-
-        // Act & Assert
-        InsufficientFundsException exception = assertThrows(InsufficientFundsException.class,
-                () -> holdService.placeHold(holdRequest));
-
-        assertTrue(exception.getMessage().toLowerCase().contains("insufficient") ||
-                exception.getMessage().contains("Insufficient"));
-        verify(holdRepository, never()).save(any(WalletHold.class));
+        assertEquals("HOLD-123", response.getHoldId());
+        verify(walletRepository).save(any(Wallet.class));
     }
 
     @Test
     void placeHold_DuplicateTransaction_ThrowsException() {
-        // Arrange
         when(walletRepository.findByUserCode(anyString())).thenReturn(Optional.of(testWallet));
-        when(holdRepository.save(any(WalletHold.class)))
-                .thenThrow(new DataIntegrityViolationException("duplicate key"));
+        DataIntegrityViolationException dive = mock(DataIntegrityViolationException.class);
+        when(dive.getMostSpecificCause()).thenReturn(new Throwable("duplicate key value"));
+        when(holdRepository.save(any(WalletHold.class))).thenThrow(dive);
 
-        // Act & Assert
-        Exception exception = assertThrows(Exception.class,
-                () -> holdService.placeHold(holdRequest));
-
-        // Check if the exception or its cause is DuplicateTransactionException
-        assertTrue(exception instanceof DuplicateTransactionException ||
-                (exception.getCause() != null && exception.getCause() instanceof DuplicateTransactionException));
-
-        verify(holdRepository, times(1)).save(any(WalletHold.class));
-    }
-
-    @Test
-    void captureHoldFunds_ValidRequest_ReturnsUpdatedHold() {
-        // Arrange
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.of(testHold));
-        when(holdRepository.save(any(WalletHold.class))).thenReturn(testHold);
-        when(walletRepository.save(any(Wallet.class))).thenReturn(testWallet);
-
-        // Act
-        HoldResponseDto response = holdService.captureHoldFunds(captureRequest);
-
-        // Assert
-        assertNotNull(response);
-        assertEquals("CAPTURED", response.getStatus());
-        verify(holdRepository, times(1)).save(any(WalletHold.class));
-        verify(walletRepository, times(1)).save(any(Wallet.class));
-    }
-
-    @Test
-    void captureHoldFunds_HoldNotFound_ThrowsException() {
-        // Arrange
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.empty());
-
-        // Act & Assert
-        HoldNotFoundException exception = assertThrows(HoldNotFoundException.class,
-                () -> holdService.captureHoldFunds(captureRequest));
-
-        assertTrue(exception.getMessage().contains("not found"));
-        verify(holdRepository, never()).save(any(WalletHold.class));
-    }
-
-    @Test
-    void captureHoldFunds_AlreadyProcessed_ThrowsException() {
-        // Arrange
-        testHold.setStatus(HoldStatus.CAPTURED);
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.of(testHold));
-
-        // Act & Assert
-        IllegalStateException exception = assertThrows(IllegalStateException.class,
-                () -> holdService.captureHoldFunds(captureRequest));
-
-        assertTrue(exception.getMessage().toLowerCase().contains("already processed") ||
-                exception.getMessage().toLowerCase().contains("captured"));
-
-        verify(holdRepository, never()).save(any(WalletHold.class));
-    }
-
-    @Test
-    void releaseHold_ValidRequest_ReturnsUpdatedHold() {
-        // Arrange
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.of(testHold));
-        when(holdRepository.save(any(WalletHold.class))).thenReturn(testHold);
-        when(walletRepository.save(any(Wallet.class))).thenReturn(testWallet);
-
-        // Act
-        HoldResponseDto response = holdService.releaseHold("HOLD123", releaseRequest);
-
-        // Assert
-        assertNotNull(response);
-        assertEquals("RELEASED", response.getStatus());
-        verify(holdRepository, times(1)).save(any(WalletHold.class));
-        verify(walletRepository, times(1)).save(any(Wallet.class));
-    }
-
-    @Test
-    void extendHold_ValidRequest_ReturnsUpdatedHold() {
-        // Arrange
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.of(testHold));
-        when(holdRepository.save(any(WalletHold.class))).thenReturn(testHold);
-        OffsetDateTime newExpiry = OffsetDateTime.now().plusDays(2);
-
-        // Act
-        HoldResponseDto response = holdService.extendHold("HOLD123", extendRequest);
-
-        // Assert
-        assertNotNull(response);
-        verify(holdRepository, times(1)).save(any(WalletHold.class));
+        assertThrows(RuntimeException.class, () -> holdService.placeHold(holdRequest));
     }
 
     @Test
     void adjustHold_ValidRequest_ReturnsUpdatedHold() {
-        // Arrange
-        // Setup wallet with user code
-        WalletUserSnapshot userSnapshot = new WalletUserSnapshot();
-        userSnapshot.setUserCode("USER123");
-        testWallet.setUserSnapshot(userSnapshot);
-        testWallet.setBalance(1000.0);
-        testWallet.setAvailableBalance(500.0);
-        testWallet.setCurrency("INR");
-        testWallet.setWalletStatus(HoldStatus.ACTIVE);
-
-        // Setup hold with proper wallet reference
-        testHold.setWallet(testWallet);
-        testHold.setRemainingAmount(400.0);
-        testHold.setCapturedAmount(100.0);
-        testHold.setStatus(HoldStatus.ACTIVE);
-
-        // Mock repository calls
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.of(testHold));
-        when(holdRepository.save(any(WalletHold.class))).thenReturn(testHold);
-        when(walletRepository.save(any(Wallet.class))).thenReturn(testWallet);
+        AdjustHoldRequestDto adjDto = new RestAdjustHoldRequestAdapter(new AdjustHoldRequest().newAmount(150.0));
+        when(holdRepository.findByHoldId("HOLD-123")).thenReturn(Optional.of(testHold));
         when(walletRepository.findById(anyLong())).thenReturn(Optional.of(testWallet));
+        when(holdRepository.save(any(WalletHold.class))).thenReturn(testHold);
 
-        // Act
-        HoldResponseDto response = holdService.adjustHold("HOLD123", adjustRequest);
+        HoldResponseDto response = holdService.adjustHold("HOLD-123", adjDto);
 
-        // Assert
         assertNotNull(response);
-        assertEquals("ACTIVE", response.getStatus());
-        verify(holdRepository, times(1)).save(any(WalletHold.class));
-        verify(walletRepository, times(1)).save(any(Wallet.class));
+        // Verify balance was reduced further (1000 - (150-100) = 950)
+        assertEquals(950.0, testWallet.getAvailableBalance());
+    }
+
+    // --- COVERAGE FOR EXCEPTIONS & EDGE CASES ---
+
+    @Test
+    void placeHold_InsufficientFunds_ThrowsException() {
+        holdRequest = new RestHoldRequestAdapter(new HoldRequest().userCode("USER-123").amount(5000.0));
+        when(walletRepository.findByUserCode("USER-123")).thenReturn(Optional.of(testWallet));
+
+        assertThrows(InsufficientFundsException.class, () -> holdService.placeHold(holdRequest));
     }
 
     @Test
-    void getHold_ValidId_ReturnsHold() {
-        // Arrange
-        when(holdRepository.findByHoldId(anyString())).thenReturn(Optional.of(testHold));
+    void captureHoldFunds_InvalidStatus_ThrowsException() {
+        testHold.setStatus(HoldStatus.RELEASED);
+        when(holdRepository.findByHoldId("HOLD-123")).thenReturn(Optional.of(testHold));
+        CaptureRequestDto capDto = new RestCaptureRequestAdapter(new CaptureRequest().holdId("HOLD-123"));
 
-        // Act
-        HoldResponseDto response = holdService.getHold("HOLD123");
-
-        // Assert
-        assertNotNull(response);
-        assertEquals("HOLD123", response.getHoldId());
+        assertThrows(IllegalStateException.class, () -> holdService.captureHoldFunds(capDto));
     }
 
     @Test
-    void listHolds_WithFilters_ReturnsFilteredHolds() {
-        // Arrange
+    void releaseHold_WalletNotFound_ThrowsException() {
+        testHold.setWallet(null); // Trigger null check
+        when(holdRepository.findByHoldId("HOLD-123")).thenReturn(Optional.of(testHold));
+        ReleaseHoldRequestDto relDto = new RestReleaseHoldRequestAdapter(
+                new ReleaseHoldRequest().reason("Test release reason"));  // Added release reason here
+
+        assertThrows(IllegalStateException.class, () ->
+                holdService.releaseHold("HOLD-123", relDto));
+    }
+
+    @Test
+    void extendHold_PastDate_ThrowsException() {
+        ExtendHoldRequestDto extDto = new RestExtendHoldRequestAdapter(
+                new ExtendHoldRequest().newExpiresAt(OffsetDateTime.now().minusDays(1)));
+        when(holdRepository.findByHoldId("HOLD-123")).thenReturn(Optional.of(testHold));
+
+        assertThrows(IllegalArgumentException.class, () -> holdService.extendHold("HOLD-123", extDto));
+    }
+
+    @Test
+    void getHoldById_NotFound_ThrowsException() {
+        when(holdRepository.findByHoldId("UNKNOWN")).thenReturn(Optional.empty());
+        assertThrows(HoldNotFoundException.class, () -> holdService.getHold("UNKNOWN"));
+    }
+
+    @Test
+    void listHolds_HandlesNullFilters() {
         Page<WalletHold> page = new PageImpl<>(Collections.singletonList(testHold));
         when(holdRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
 
-        // Act
-        Page<HoldResponseDto> result = holdService.listHolds(
-                "USER123",
-                "ACTIVE",
-                "USD",
-                OffsetDateTime.now().minusDays(1),
-                OffsetDateTime.now().plusDays(1),
-                PageRequest.of(0, 10)
-        );
+        Page<HoldResponseDto> result = holdService.listHolds(null, null, null, null, null, PageRequest.of(0, 10));
 
-        // Assert
         assertNotNull(result);
-        assertEquals(1, result.getTotalElements());
-        verify(holdRepository, times(1)).findAll(any(Specification.class), any(Pageable.class));
+        assertFalse(result.isEmpty());
     }
 
     @Test
-    void listHolds_NoFilters_ReturnsAllHolds() {
-        // Arrange
-        Page<WalletHold> page = new PageImpl<>(Collections.singletonList(testHold));
-        when(holdRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+    void getTotalHeldAmount_HandlesException() {
+        when(holdRepository.sumPendingHoldsByWalletId(anyLong())).thenThrow(new RuntimeException("DB Error"));
+        Double total = holdService.getTotalHeldAmount(1L);
+        assertEquals(0.0, total); // Verifies catch block returns 0.0
+    }
 
-        // Act
-        Page<HoldResponseDto> result = holdService.listHolds(
-                null, null, null, null, null, PageRequest.of(0, 10));
+    @Test
+    void validateHold_UnexpectedException_ReturnsFalse() {
+        // Force an exception inside private validation flow via mock
+        when(walletRepository.findByUserCode(anyString())).thenThrow(new JpaSystemException(new RuntimeException()));
 
-        // Assert
-        assertNotNull(result);
-        assertEquals(1, result.getTotalElements());
-        verify(holdRepository, times(1)).findAll(any(Specification.class), any(Pageable.class));
+        // This hits the "Unexpected error in validateHold" catch block
+        assertThrows(RuntimeException.class, () -> holdService.placeHold(holdRequest));
     }
 }

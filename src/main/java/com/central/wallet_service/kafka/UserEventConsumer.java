@@ -6,6 +6,7 @@ import com.central.wallet_service.exception.WalletNotFoundException;
 import com.central.wallet_service.model.WalletUserSnapshot;
 import com.central.wallet_service.repository.WalletUserSnapshotRepository;
 import com.google.protobuf.InvalidProtocolBufferException;
+import jakarta.transaction.Transactional;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -31,6 +32,7 @@ public class UserEventConsumer {
     }
 
     @KafkaListener(topics = USER_EVENT_TOPIC, groupId = "wallet-service")
+    @Transactional
     public void handleUserUpdateEvent(byte[] event) {
         long startTime = System.currentTimeMillis();
         String userCode = "";

@@ -33,18 +33,42 @@ import java.util.List;
 import static com.central.wallet_service.constants.WalletConstants.INSUFFICIENT_FUNDS;
 import static com.central.wallet_service.utils.ServiceUtils.generateHoldReference;
 
+// Add these imports at the top
+import org.springframework.beans.factory.annotation.Qualifier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
+
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @Transactional(readOnly = true)
 public class HoldServiceImpl implements HoldService {
 
-    @Autowired
     private final WalletHoldRepository holdRepository;
+    private final WalletRepository walletRepository;
+    private final ExecutorService ioExecutor;
+    private final ExecutorService cpuExecutor;
 
     @Autowired
-    private final WalletRepository walletRepository;
+    public HoldServiceImpl(
+            WalletHoldRepository holdRepository, 
+            WalletRepository walletRepository, 
+            @Qualifier("ioTaskExecutor") ExecutorService ioExecutor, 
+            @Qualifier("cpuTaskExecutor") ExecutorService cpuExecutor) {
+        this.holdRepository = holdRepository;
+        this.walletRepository = walletRepository;
+        this.ioExecutor = ioExecutor;
+        this.cpuExecutor = cpuExecutor;
+    }
 
+    // Helper methods for executing tasks
+    private <T> T executeIo(Supplier<T> task) {
+        return CompletableFuture.supplyAsync(task, ioExecutor).join();
+    }
+
+    private <T> T executeCpu(Supplier<T> task) {
+        return CompletableFuture.supplyAsync(task, cpuExecutor).join();
+    }
 
     @Override
     @Transactional(rollbackFor = {Exception.class})
@@ -55,9 +79,9 @@ public class HoldServiceImpl implements HoldService {
                 log.error("Hold request cannot be null");
                 throw new IllegalArgumentException(WalletConstants.INVALID_REQUEST);
             }
-            
+
             validateHoldRequest(request);
-            
+
             // Retrieve wallet with proper exception handling
             Wallet wallet = walletRepository.findByUserCode(request.getUserCode())
                 .orElseThrow(() -> {
@@ -72,53 +96,55 @@ public class HoldServiceImpl implements HoldService {
                 log.error(errorMsg);
                 throw new IllegalStateException(errorMsg);
             }
-            
+
             Double amount = request.getAmount();
-            
+
             // Validate hold amount and wallet balance
             if (amount <= 0) {
                 String errorMsg = "Hold amount must be greater than zero";
                 log.error(errorMsg);
                 throw new IllegalArgumentException(errorMsg);
             }
-            
+
             if (wallet.getAvailableBalance() < amount) {
                 String errorMsg = String.format(INSUFFICIENT_FUNDS,
                         request.getUserCode(), wallet.getAvailableBalance(), amount);
                 log.error(errorMsg);
                 throw new InsufficientFundsException(errorMsg);
             }
-            
+
             try {
                 Double walletBalance = wallet.getAvailableBalance();
                 Double newBalanceAfterHoldPlaced = walletBalance - amount;
 
-                // Create and save the hold
-                WalletHold hold = WalletHold.builder()
-                    .wallet(wallet)
-                    .holdId(generateHoldReference())
-                    .transaction_id(request.getTransactionId())
-                    .originalAmount(walletBalance)
-                    .remainingAmount(newBalanceAfterHoldPlaced)
-                    .capturedAmount(amount)
-                    .status(HoldStatus.ACTIVE)
-                    .description(request.getDescription())
-                    .expiresAt(LocalDateTime.now().plusDays(7)) // Default 7-day expiration
-                    .createdAt(LocalDateTime.now())
-                    .build();
+                // CPU-bound operation - create hold
+                final WalletHold hold = executeCpu(() ->
+                        WalletHold.builder()
+                                .wallet(wallet)
+                                .holdId(generateHoldReference())
+                                .transaction_id(request.getTransactionId())
+                                .originalAmount(walletBalance)
+                                .remainingAmount(newBalanceAfterHoldPlaced)
+                                .capturedAmount(amount)
+                                .status(HoldStatus.ACTIVE)
+                                .description(request.getDescription())
+                                .expiresAt(LocalDateTime.now().plusDays(7))
+                                .createdAt(LocalDateTime.now())
+                                .build()
+                );
 
                 WalletHold savedHold = holdRepository.save(hold);
-                
+
                 // Update wallet's available balance
                 wallet.setAvailableBalance(newBalanceAfterHoldPlaced);
                 wallet.setUpdatedAt(LocalDateTime.now());
                 walletRepository.save(wallet);
 
-                log.info(WalletConstants.LOG_HOLD_PLACED, 
+                log.info(WalletConstants.LOG_HOLD_PLACED,
                     amount, wallet.getCurrency(), wallet.getId());
 
                 return new HoldResponseAdapter(savedHold);
-                
+
             } catch (DataIntegrityViolationException ex) {
                 String errorMsg = "Database constraint violation while placing hold: " + ex.getMostSpecificCause().getMessage();
                 log.error(errorMsg, ex);
@@ -134,8 +160,8 @@ public class HoldServiceImpl implements HoldService {
                 log.error("Error while processing hold: {}", ex.getMessage(), ex);
                 throw new RuntimeException("Failed to process hold: " + ex.getMessage(), ex);
             }
-            
-        } catch (IllegalArgumentException | IllegalStateException | 
+
+        } catch (IllegalArgumentException | IllegalStateException |
                 WalletNotFoundException | InsufficientFundsException ex) {
             // Re-throw known exceptions with proper logging
             log.error("Failed to place hold: {}", ex.getMessage(), ex);
@@ -158,7 +184,7 @@ public class HoldServiceImpl implements HoldService {
                 log.error(errorMsg);
                 throw new IllegalArgumentException(errorMsg);
             }
-            
+
             // Retrieve hold with proper exception handling
             WalletHold hold = holdRepository.findByHoldId(request.getHoldId())
                 .orElseThrow(() -> {
@@ -166,15 +192,15 @@ public class HoldServiceImpl implements HoldService {
                     log.error(errorMsg);
                     return new HoldNotFoundException(errorMsg);
                 });
-            
+
             // Validate hold status
             if (hold.getStatus() != HoldStatus.ACTIVE) {
-                String errorMsg = String.format(WalletConstants.HOLD_ALREADY_PROCESSED, 
+                String errorMsg = String.format(WalletConstants.HOLD_ALREADY_PROCESSED,
                     hold.getStatus().name().toLowerCase());
                 log.error(errorMsg);
                 throw new IllegalStateException(errorMsg);
             }
-            
+
             // Validate hold expiration
             if (hold.getExpiresAt() != null && hold.getExpiresAt().isBefore(LocalDateTime.now())) {
                 log.error(WalletConstants.HOLD_EXPIRED);
@@ -188,31 +214,31 @@ public class HoldServiceImpl implements HoldService {
                     log.error(errorMsg);
                     throw new IllegalStateException(errorMsg);
                 }
-                
+
                 // Update hold status and wallet balance
                 hold.setStatus(HoldStatus.CAPTURED);
                 hold.setUpdatedAt(LocalDateTime.now());
-                
+
                 double newBalance = wallet.getBalance() - hold.getCapturedAmount();
                 if (newBalance < 0) {
-                    String errorMsg = String.format("Insufficient balance to capture hold. Current: %.2f, Required: %.2f", 
+                    String errorMsg = String.format("Insufficient balance to capture hold. Current: %.2f, Required: %.2f",
                         wallet.getBalance(), hold.getCapturedAmount());
                     log.error(errorMsg);
                     throw new InsufficientFundsException(errorMsg);
                 }
-                
+
                 wallet.setBalance(newBalance);
                 wallet.setUpdatedAt(LocalDateTime.now());
-                
+
                 // Save changes in a transaction
                 WalletHold updatedHold = holdRepository.save(hold);
                 walletRepository.save(wallet);
-                
-                log.info(WalletConstants.LOG_HOLD_CAPTURED, 
+
+                log.info(WalletConstants.LOG_HOLD_CAPTURED,
                     hold.getCapturedAmount(), wallet.getCurrency(), hold.getId());
-                    
+
                 return new HoldResponseAdapter(updatedHold);
-                
+
             } catch (DataIntegrityViolationException ex) {
                 String errorMsg = "Database constraint violation while capturing hold: " + ex.getMostSpecificCause().getMessage();
                 log.error(errorMsg, ex);
@@ -228,8 +254,8 @@ public class HoldServiceImpl implements HoldService {
                 log.error("Error while processing hold capture: {}", ex.getMessage(), ex);
                 throw new RuntimeException("Failed to capture hold: " + ex.getMessage(), ex);
             }
-            
-        } catch (IllegalArgumentException | IllegalStateException | 
+
+        } catch (IllegalArgumentException | IllegalStateException |
                 HoldNotFoundException | InsufficientFundsException ex) {
             // Re-throw known exceptions with proper logging
             log.error("Failed to capture hold: {}", ex.getMessage(), ex);
@@ -252,7 +278,7 @@ public class HoldServiceImpl implements HoldService {
                 log.error(errorMsg);
                 throw new IllegalArgumentException(errorMsg);
             }
-            
+
             if (request == null || StringUtils.isBlank(request.getReason())) {
                 String errorMsg = "Release reason is required";
                 log.error(errorMsg);
@@ -266,21 +292,21 @@ public class HoldServiceImpl implements HoldService {
                     log.error(errorMsg);
                     return new HoldNotFoundException(errorMsg);
                 });
-                
+
             // Validate hold status
             if (hold.getStatus() != HoldStatus.ACTIVE) {
-                String errorMsg = String.format(WalletConstants.HOLD_ALREADY_PROCESSED, 
+                String errorMsg = String.format(WalletConstants.HOLD_ALREADY_PROCESSED,
                     hold.getStatus().name().toLowerCase());
                 log.error(errorMsg);
                 throw new IllegalStateException(errorMsg);
             }
-            
+
             try {
                 // Update hold status
                 hold.setStatus(HoldStatus.RELEASED);
                 hold.setDescription(request.getReason());
                 hold.setUpdatedAt(LocalDateTime.now());
-                
+
                 // Return funds to available balance
                 Wallet wallet = hold.getWallet();
                 if (wallet == null) {
@@ -288,23 +314,29 @@ public class HoldServiceImpl implements HoldService {
                     log.error(errorMsg);
                     throw new IllegalStateException(errorMsg);
                 }
-                
+
                 double newAvailableBalance = wallet.getAvailableBalance() + hold.getCapturedAmount();
                 wallet.setAvailableBalance(newAvailableBalance);
                 wallet.setUpdatedAt(LocalDateTime.now());
-                
+
                 // Save changes in a transaction
                 WalletHold releasedHold = holdRepository.save(hold);
                 walletRepository.save(wallet);
-                
+
                 log.info("{}: {}", WalletConstants.LOG_HOLD_RELEASED, holdId);
                 return new HoldResponseAdapter(releasedHold);
-                
-            } catch (Exception ex) {
+
+            }
+            catch (IllegalArgumentException | IllegalStateException | HoldNotFoundException ex) {
+                // Re-throw known exceptions with proper logging
+                log.error("Failed to release hold: {}", ex.getMessage(), ex);
+                throw ex;
+            }catch (Exception ex) {
                 log.error("Error while processing hold release: {}", ex.getMessage(), ex);
                 throw new RuntimeException("Failed to release hold: " + ex.getMessage(), ex);
             }
-            
+
+
         } catch (IllegalArgumentException | IllegalStateException | HoldNotFoundException ex) {
             // Re-throw known exceptions with proper logging
             log.error("Failed to release hold: {}", ex.getMessage(), ex);
@@ -322,22 +354,22 @@ public class HoldServiceImpl implements HoldService {
         if (request == null) {
             throw new IllegalArgumentException("Hold request cannot be null");
         }
-        
+
         if (StringUtils.isBlank(request.getUserCode())) {
             throw new IllegalArgumentException("User code is required");
         }
-        
+
         if (request.getAmount() == null || request.getAmount() <= 0) {
             throw new IllegalArgumentException("Amount must be greater than zero");
         }
     }
-    
+
     private void validateCaptureRequest(CaptureRequest request) {
         if (request == null || StringUtils.isBlank(request.getHoldId())) {
             throw new IllegalArgumentException("Hold ID is required");
         }
     }
-    
+
     private WalletHold getValidHoldForRelease(String holdId) {
         try {
             if (StringUtils.isBlank(holdId)) {
@@ -345,14 +377,14 @@ public class HoldServiceImpl implements HoldService {
                 log.error(errorMsg);
                 throw new IllegalArgumentException(errorMsg);
             }
-            
+
             return holdRepository.findByHoldId(holdId)
                 .orElseThrow(() -> {
                     String errorMsg = String.format(WalletConstants.HOLD_NOT_FOUND, holdId);
                     log.error(errorMsg);
                     return new HoldNotFoundException(errorMsg);
                 });
-                
+
         } catch (IllegalArgumentException | HoldNotFoundException ex) {
             log.error("Validation failed for hold release: {}", ex.getMessage(), ex);
             throw ex;
@@ -476,14 +508,18 @@ public class HoldServiceImpl implements HoldService {
                 .orElseThrow(() -> {
                     log.warn("{} - Hold ID: {}",
                         String.format(WalletConstants.HOLD_NOT_FOUND, holdId), holdId);
-                    return new IllegalArgumentException(
+                    return new HoldNotFoundException(
                         String.format(WalletConstants.HOLD_NOT_FOUND, holdId));
                 });
 
             log.debug("Retrieved hold with ID: {}", holdId);
             return new HoldResponseAdapter(hold);
 
-        } catch (IllegalArgumentException ex) {
+        }catch (HoldNotFoundException ex){
+            log.error(String.format(WalletConstants.HOLD_NOT_FOUND, holdId),holdId +"for hold: {}", ex.getMessage(), ex);
+            throw ex;
+        }
+        catch (IllegalArgumentException ex) {
             log.error("Error getting hold: {}", ex.getMessage(), ex);
             throw ex;
         } catch (Exception ex) {
@@ -603,34 +639,44 @@ public class HoldServiceImpl implements HoldService {
 
     public boolean validateHold(Long walletId, Double amount, String currency) {
         try {
-            if (walletId == null || amount == null || StringUtils.isBlank(currency)) {
-                log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Missing required parameters");
-                return false;
-            }
+            return executeIo(() -> {
+                try {
+                    // Input validation
+                    if (walletId == null || amount == null || StringUtils.isBlank(currency)) {
+                        log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Missing required parameters");
+                        return false;
+                    }
 
             Wallet wallet = walletRepository.findById(walletId)
                 .orElseThrow(() -> new WalletNotFoundException(
                     String.format(WalletConstants.WALLET_NOT_FOUND, walletId)));
 
-            if (wallet.getWalletStatus() != HoldStatus.ACTIVE) {
-                log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Wallet not active");
-                return false;
-            }
+                    // CPU-bound validations
+                    return executeCpu(() -> {
+                        if (wallet.getWalletStatus() != HoldStatus.ACTIVE) {
+                            log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Wallet not active");
+                            return false;
+                        }
 
-            if (!wallet.getCurrency().equals(currency)) {
-                log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Currency mismatch");
-                return false;
-            }
+                        if (!wallet.getCurrency().equals(currency)) {
+                            log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Currency mismatch");
+                            return false;
+                        }
 
-            // Check if there's enough available balance
-            boolean hasSufficientFunds = wallet.getAvailableBalance() >= amount;
-            if (!hasSufficientFunds) {
-                log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Insufficient funds");
-            }
-            return hasSufficientFunds;
-            
+                        // Check if there's enough available balance
+                        boolean hasSufficientFunds = wallet.getAvailableBalance() >= amount;
+                        if (!hasSufficientFunds) {
+                            log.warn(WalletConstants.LOG_HOLD_VALIDATION_FAILED, "Insufficient funds");
+                        }
+                        return hasSufficientFunds;
+                    });
+                } catch (Exception ex) {
+                    log.error("Error validating hold: {}", ex.getMessage(), ex);
+                    return false;
+                }
+            });
         } catch (Exception ex) {
-            log.error("Error validating hold: {}", ex.getMessage(), ex);
+            log.error("Unexpected error in validateHold: {}", ex.getMessage(), ex);
             return false;
         }
     }
