@@ -1,30 +1,38 @@
 package com.central.wallet_service.controller;
 
+import com.central.wallet_service.dto.WalletCreateRequestDto;
+import com.central.wallet_service.dto.WalletResponseDto;
+import com.central.wallet_service.dto.adapter.request.RestWalletRequestAdapter;
 import com.central.wallet_service.service.WalletService;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.openapitools.api.WalletsApi;
-import org.openapitools.model.*;
+import org.openapitools.model.WalletCreateRequest;
+import org.openapitools.model.WalletResponse;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.beans.factory.annotation.Autowired;
+
+import static com.central.wallet_service.utils.ServiceUtils.toWalletResponse;
+
 
 @Slf4j
 @RestController
-public class WalletController implements WalletsApi{
+@RequiredArgsConstructor
+public class WalletController implements WalletsApi {
 
-    @Autowired
-    private WalletService walletService;
+    private final WalletService walletService;
 
     @Override
     public ResponseEntity<WalletResponse> createWallet(WalletCreateRequest walletCreateRequest) {
-        WalletResponse response = walletService.createWallet(walletCreateRequest);
-        return ResponseEntity.ok(response);
+        WalletCreateRequestDto requestDto = new RestWalletRequestAdapter(walletCreateRequest);
+        WalletResponseDto responseDto = walletService.createWallet(requestDto);
+        return ResponseEntity.ok(toWalletResponse(responseDto));
     }
 
     @Override
     public ResponseEntity<WalletResponse> getWalletByUserCode(String userCode) {
-        WalletResponse response = walletService.getWalletByUserCode(userCode);
-        return ResponseEntity.ok(response);
+        WalletResponseDto responseDto = walletService.getWalletByUserCode(userCode);
+        return ResponseEntity.ok(toWalletResponse(responseDto));
     }
 
 }

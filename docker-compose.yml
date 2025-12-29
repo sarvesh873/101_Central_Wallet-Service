@@ -25,7 +25,7 @@ services:
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       SPRING_SQL_INIT_MODE: always
-      Wallet_SERVICE_GRPC_PORT: 9005
+      Wallet_SERVICE_GRPC_PORT: 9095
       # Note: The database hostname is 'db' because that is the service name below
 
     networks:

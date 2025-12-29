@@ -17,7 +17,9 @@ public interface WalletRepository extends JpaRepository<Wallet, Long> {
      * @return Optional containing the wallet if found
      */
 
-    @Query("SELECT w FROM Wallet w WHERE w.userSnapshot.userCode = :userCode")
+    @Query("SELECT w FROM Wallet w " +
+            "LEFT JOIN FETCH w.userSnapshot s " +
+            "WHERE s.userCode = :userCode")
     Optional<Wallet> findByUserCode(@Param("userCode") String userCode);
 
 

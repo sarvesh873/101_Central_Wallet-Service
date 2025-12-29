@@ -1,10 +1,10 @@
 package com.central.wallet_service.grpc;
 
 import com.central.wallet.*;
-import com.central.wallet_service.exception.HoldNotFoundException;
-import com.central.wallet_service.exception.WalletNotFoundException;
+import com.central.wallet_service.dto.*;
+import com.central.wallet_service.dto.adapter.request.*;
+import com.central.wallet_service.exception.*;
 import com.central.wallet_service.service.HoldService;
-import com.google.protobuf.Timestamp;
 import com.google.rpc.Code;
 import com.google.rpc.Status;
 import io.grpc.protobuf.StatusProto;
@@ -18,12 +18,9 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.dao.DataIntegrityViolationException;
-
-import java.time.Instant;
-import java.time.LocalDateTime;
-import java.time.OffsetDateTime;
-import java.time.ZoneOffset;
 import java.util.stream.Collectors;
+import com.central.wallet_service.utils.ServiceUtils;
+import static com.central.wallet_service.utils.ServiceUtils.*;
 
 @Slf4j
 @GrpcService
@@ -53,17 +50,11 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             }
 
             // Create hold request
-            HoldRequest holdRequest = new HoldRequest()
-                .userCode(request.getUserCode())
-                .amount(request.getAmount())
-                .description(request.getDescription())
-                .transactionId(request.getTransactionId());
-
-            // Process hold
-            HoldResponse response = holdService.placeHold(holdRequest);
+            PlaceHoldRequestDto requestDto = new GrpcPlaceHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.placeHold(requestDto);
 
             // Convert and send response
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (WalletNotFoundException e) {
@@ -75,7 +66,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
         } catch (IllegalArgumentException | IllegalStateException e) {
             log.error("Invalid hold request: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INVALID_ARGUMENT, e.getMessage());
-        } catch (Exception e) {
+        } catch (InsufficientFundsException e) {
+            log.error("Insufficient funds for adjustment: {}", e.getMessage(), e);
+            handleError(responseObserver, Code.FAILED_PRECONDITION, "Insufficient funds");
+        }catch (Exception e) {
             log.error("Error placing hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);
         }
@@ -89,14 +83,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            CaptureRequest captureRequest = new CaptureRequest()
-                .holdId(request.getHoldId())
-                .description(request.getDescription())
-                .releaseRemainder(request.getReleaseRemainder());
+            CaptureRequestDto requestDto = new GrpcCaptureRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.captureHoldFunds(requestDto);
 
-            HoldResponse response = holdService.captureHoldFunds(captureRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -106,6 +96,9 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             log.error("Invalid hold state for capture: {}", e.getMessage(), e);
             handleError(responseObserver, Code.FAILED_PRECONDITION, 
                 e.getMessage().contains("expired") ? HOLD_EXPIRED : HOLD_NOT_ACTIVE);
+        } catch (InsufficientFundsException e) {
+            log.error("Insufficient funds for adjustment: {}", e.getMessage(), e);
+            handleError(responseObserver, Code.FAILED_PRECONDITION, "Insufficient funds");
         } catch (Exception e) {
             log.error("Error capturing hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);
@@ -120,13 +113,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            ReleaseHoldRequest releaseRequest = new ReleaseHoldRequest()
-                .reason(request.getReason())
-                .metadata(request.getMetadataMap());
+            ReleaseHoldRequestDto requestDto = new GrpcReleaseHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.releaseHold(request.getHoldId(), requestDto);
 
-            HoldResponse response = holdService.releaseHold(request.getHoldId(), releaseRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         }
@@ -153,8 +143,8 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            HoldResponse response = holdService.getHold(request.getHoldId());
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            HoldResponseDto responseDto = holdService.getHold(request.getHoldId());
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -187,7 +177,7 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             );
 
             // Call service
-            Page<HoldResponse> holdsPage = holdService.listHolds(
+            Page<HoldResponseDto> holdsPage = holdService.listHolds(
                 request.getUserCode(),
                 request.getStatus(),
                 request.getCurrency(),
@@ -199,7 +189,7 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
             // Convert and send response
             ListHoldsResponseGRPC response = ListHoldsResponseGRPC.newBuilder()
                 .addAllItems(holdsPage.getContent().stream()
-                    .map(this::convertToHoldResponseGRPC)
+                    .map(ServiceUtils::convertToHoldResponseGRPC)
                     .collect(Collectors.toList()))
                 .setPagination(PaginationResponseGRPC.newBuilder()
                     .setCurrentPage(holdsPage.getNumber() + 1)
@@ -228,13 +218,9 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            ExtendHoldRequest extendRequest = new ExtendHoldRequest()
-                .newExpiresAt(toOffsetDateTime(request.getNewExpiresAt()))
-                .reason(request.getReason());
-
-            HoldResponse response = holdService.extendHold(request.getHoldId(), extendRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            ExtendHoldRequestDto requestDto = new GrpcExtendHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.extendHold(request.getHoldId(), requestDto);
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -255,13 +241,10 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
                 return;
             }
 
-            AdjustHoldRequest adjustRequest = new AdjustHoldRequest()
-                .newAmount(request.getNewAmount())
-                .reason(request.getReason());
+            AdjustHoldRequestDto requestDto = new GrpcAdjustHoldRequestAdapter(request);
+            HoldResponseDto responseDto = holdService.adjustHold(request.getHoldId(), requestDto);
 
-            HoldResponse response = holdService.adjustHold(request.getHoldId(), adjustRequest);
-            
-            responseObserver.onNext(convertToHoldResponseGRPC(response));
+            responseObserver.onNext(convertToHoldResponseGRPC(responseDto));
             responseObserver.onCompleted();
 
         } catch (HoldNotFoundException e) {
@@ -270,52 +253,13 @@ public class GrpcHoldServiceImpl extends HoldServiceGrpc.HoldServiceImplBase {
         } catch (IllegalStateException e) {
             log.error("Invalid hold state for adjustment: {}", e.getMessage(), e);
             handleError(responseObserver, Code.FAILED_PRECONDITION, e.getMessage());
+        } catch (InsufficientFundsException e) {
+            log.error("Insufficient funds for adjustment: {}", e.getMessage(), e);
+            handleError(responseObserver, Code.FAILED_PRECONDITION, "Insufficient funds");
         } catch (Exception e) {
             log.error("Error adjusting hold: {}", e.getMessage(), e);
             handleError(responseObserver, Code.INTERNAL, INTERNAL_ERROR);
         }
-    }
-
-    // Helper methods
-    private HoldResponseGRPC convertToHoldResponseGRPC(HoldResponse response) {
-        if (response == null) {
-            return null;
-        }
-
-        return HoldResponseGRPC.newBuilder()
-            .setHoldId(response.getHoldId())
-            .setTransactionId(response.getTransactionId())
-            .setUserCode(response.getUserCode())
-            .setStatus(HoldResponseGRPC.HoldStatusGRPC.valueOf(response.getStatus().name()))
-            .setOriginalAmount(response.getOriginalAmount())
-            .setRemainingAmount(response.getRemainingAmount())
-            .setCapturedAmount(response.getCapturedAmount())
-            .setCreatedAt(convertToTimestamp(response.getCreatedAt()))
-            .setExpiresAt(convertToTimestamp(response.getExpiresAt()))
-            .setUpdatedAt(convertToTimestamp(response.getUpdatedAt()))
-            .setDescription(response.getDescription())
-            .build();
-    }
-
-    private Timestamp convertToTimestamp(OffsetDateTime offsetDateTime) {
-        if (offsetDateTime == null) {
-            return Timestamp.getDefaultInstance();
-        }
-        Instant instant = offsetDateTime.toInstant();
-        return Timestamp.newBuilder()
-            .setSeconds(instant.getEpochSecond())
-            .setNanos(instant.getNano())
-            .build();
-    }
-
-    private OffsetDateTime toOffsetDateTime(Timestamp timestamp) {
-        if (timestamp == null) {
-            return null;
-        }
-        return OffsetDateTime.ofInstant(
-            Instant.ofEpochSecond(timestamp.getSeconds(), timestamp.getNanos()),
-            ZoneOffset.UTC
-        );
     }
 
     private <T> void handleError(StreamObserver<T> responseObserver, Code code, String message) {

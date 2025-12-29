@@ -262,12 +262,12 @@ class WalletHoldSpecificationsTest {
         try {
             // Act
             WalletHoldSpecifications instance = constructor.newInstance();
-            
+
             // Assert
             assertNotNull(instance, "Instance should be created successfully");
         } catch (InvocationTargetException e) {
             // If the constructor throws an exception, verify it's the expected one
-            assertTrue(e.getCause() instanceof IllegalStateException, 
+            assertTrue(e.getCause() instanceof IllegalStateException,
                 "Should throw IllegalStateException when trying to instantiate");
         }
     }

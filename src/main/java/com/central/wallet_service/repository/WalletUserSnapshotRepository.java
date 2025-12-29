@@ -12,5 +12,5 @@ import java.time.LocalDateTime;
 import java.util.Optional;
 
 public interface WalletUserSnapshotRepository extends JpaRepository<WalletUserSnapshot, Long> {
-
+    Optional<WalletUserSnapshot> findByUserCode(String userCode);
 }

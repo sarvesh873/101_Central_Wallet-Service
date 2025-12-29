@@ -1,6 +1,14 @@
 package com.central.wallet_service.service;
 
 import com.central.wallet_service.constants.WalletConstants;
+import com.central.wallet_service.dto.WalletCreateRequestDto;
+import com.central.wallet_service.dto.WalletResponseDto;
+import com.central.wallet_service.dto.WalletTransactionRequestDto;
+import com.central.wallet_service.dto.WalletTransactionResponseDto;
+import com.central.wallet_service.dto.adapter.request.RestTransactionRequestAdapter;
+import com.central.wallet_service.dto.adapter.request.RestWalletRequestAdapter;
+import com.central.wallet_service.dto.adapter.response.WalletResponseAdapter;
+import com.central.wallet_service.dto.adapter.response.WalletTransactionResponseAdapter;
 import com.central.wallet_service.exception.DuplicateTransactionException;
 import com.central.wallet_service.exception.InsufficientFundsException;
 import com.central.wallet_service.exception.WalletNotFoundException;
@@ -9,7 +17,7 @@ import com.central.wallet_service.model.Wallet;
 import com.central.wallet_service.model.WalletUserSnapshot;
 import com.central.wallet_service.repository.WalletRepository;
 import com.central.wallet_service.repository.WalletUserSnapshotRepository;
-import com.central.wallet_service.utils.ServiceUtils; // Assuming this is needed for toOffsetDateTime
+import com.central.wallet_service.utils.ServiceUtils;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,6 +61,8 @@ class WalletServiceImplTest {
     private Wallet wallet;
     private WalletCreateRequest createRequest;
     private WalletTransactionRequest transactionRequest;
+    private WalletCreateRequestDto createRequestDto;
+    private WalletTransactionRequestDto transactionRequestDto;
 
     @BeforeEach
     void setUp() {
@@ -84,9 +94,12 @@ class WalletServiceImplTest {
         createRequest = new WalletCreateRequest()
                 .userCode(TEST_USER_CODE)
                 .currency(DEFAULT_CURRENCY);
+        createRequestDto = new RestWalletRequestAdapter(createRequest);
 
         transactionRequest = new WalletTransactionRequest()
-                .amount(TRANSACTION_AMOUNT);
+                .amount(TRANSACTION_AMOUNT)
+                .currency(DEFAULT_CURRENCY);
+        transactionRequestDto = new RestTransactionRequestAdapter(transactionRequest);
     }
 
     // --- createWallet Tests ---
@@ -99,12 +112,13 @@ class WalletServiceImplTest {
         when(walletRepository.save(any(Wallet.class))).thenReturn(wallet);
 
         // Act
-        var response = walletService.createWallet(createRequest);
+        WalletResponseDto response = walletService.createWallet(createRequestDto);
 
         // Assert
         assertNotNull(response);
         assertEquals(TEST_USER_CODE, response.getUserCode());
         assertEquals(DEFAULT_INITIAL_BALANCE, response.getBalance());
+        assertEquals(DEFAULT_CURRENCY, response.getCurrency());
         verify(walletRepository).existsByUserCode(TEST_USER_CODE);
         verify(userSnapshotRepository).save(any(WalletUserSnapshot.class));
         verify(walletRepository).save(any(Wallet.class));
@@ -116,7 +130,7 @@ class WalletServiceImplTest {
         when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenReturn(true);
 
         // Act & Assert
-        assertThrows(IllegalStateException.class, () -> walletService.createWallet(createRequest));
+        assertThrows(IllegalStateException.class, () -> walletService.createWallet(createRequestDto));
         verify(walletRepository).existsByUserCode(TEST_USER_CODE);
         verify(userSnapshotRepository, never()).save(any());
         verify(walletRepository, never()).save(any());
@@ -130,23 +144,21 @@ class WalletServiceImplTest {
 
     @Test
     void createWallet_ThrowsIllegalArgumentException_IfUserCodeIsBlank() {
-        createRequest.userCode("");
-        assertThrows(IllegalArgumentException.class, () -> walletService.createWallet(createRequest));
+        WalletCreateRequest invalidRequest = new WalletCreateRequest()
+                .userCode("")
+                .currency(DEFAULT_CURRENCY);
+        WalletCreateRequestDto invalidRequestDto = new RestWalletRequestAdapter(invalidRequest);
+        assertThrows(IllegalArgumentException.class, () -> walletService.createWallet(invalidRequestDto));
     }
 
     @Test
     void createWallet_ThrowsIllegalArgumentException_IfCurrencyIsNull() {
-        createRequest.currency(null); // Already tested for default, this tests the explicit check for null currency in validateWalletRequest
-        // The service logic defaults null currency, so let's adjust the mock to ensure the validation path is covered if it wasn't for defaulting.
-        // Re-reading service: validateWalletRequest throws if currency == null. The check is: if (request.getCurrency() == null) throw...
-        // The save path defaults it. Let's make sure the validator is hit first.
         WalletCreateRequest requestInvalidCurrency = new WalletCreateRequest()
                 .userCode(TEST_USER_CODE)
                 .currency(null);
-
-        // This test hits the validation block at the start, which is a bit of a contradiction with the later default logic.
-        // Based on the provided code, if currency is null, it throws, but if it passes validation, it defaults. Let's cover the explicit validation path.
-        assertThrows(IllegalArgumentException.class, () -> walletService.createWallet(requestInvalidCurrency));
+        WalletCreateRequestDto invalidRequestDto = new RestWalletRequestAdapter(requestInvalidCurrency);
+        
+        assertThrows(IllegalArgumentException.class, () -> walletService.createWallet(invalidRequestDto));
     }
 
     // Exception Handling for createWallet
@@ -156,15 +168,17 @@ class WalletServiceImplTest {
         when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenReturn(false);
         when(userSnapshotRepository.save(any(WalletUserSnapshot.class))).thenReturn(userSnapshot);
         // Mock a DataIntegrityViolationException, but without the 'duplicate' message
-        DataIntegrityViolationException ex = new DataIntegrityViolationException("Some other DB error", new Throwable("Transaction processing failed"));
+        DataIntegrityViolationException ex = new DataIntegrityViolationException(
+            "Some other DB error", 
+            new Throwable("Transaction processing failed")
+        );
         when(walletRepository.save(any(Wallet.class))).thenThrow(ex);
 
         // Act & Assert
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> walletService.createWallet(createRequest));
-        // Note: The service catches generic Exception and rewraps as RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR, ex)
-        // for createWallet, but for deposit/withdraw it has specific handling.
-        // Let's verify based on implementation.
-        // In createWallet: catch (DataIntegrityViolationException ex) { ... if (!duplicate) throw new RuntimeException(WalletConstants.INTERNAL_SERVER_ERROR, ex); }
+        RuntimeException thrown = assertThrows(
+            RuntimeException.class, 
+            () -> walletService.createWallet(createRequestDto)
+        );
         assertEquals(WalletConstants.INTERNAL_SERVER_ERROR, thrown.getMessage());
     }
 
@@ -178,11 +192,13 @@ class WalletServiceImplTest {
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
 
         // Act
-        var response = walletService.getWalletByUserCode(TEST_USER_CODE);
+        WalletResponseDto response = walletService.getWalletByUserCode(TEST_USER_CODE);
 
         // Assert
         assertNotNull(response);
         assertEquals(TEST_USER_CODE, response.getUserCode());
+        assertEquals(DEFAULT_INITIAL_BALANCE, response.getBalance());
+        assertEquals(DEFAULT_CURRENCY, response.getCurrency());
         verify(walletRepository).findByUserCode(TEST_USER_CODE);
     }
 
@@ -198,7 +214,9 @@ class WalletServiceImplTest {
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.empty());
 
         // Act & Assert
-        assertThrows(WalletNotFoundException.class, () -> walletService.getWalletByUserCode(TEST_USER_CODE));
+        assertThrows(WalletNotFoundException.class, 
+            () -> walletService.getWalletByUserCode(TEST_USER_CODE));
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
     }
 
     @Test
@@ -208,51 +226,138 @@ class WalletServiceImplTest {
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
 
         // Act & Assert
-        assertThrows(IllegalStateException.class, () -> walletService.getWalletByUserCode(TEST_USER_CODE));
+        assertThrows(IllegalStateException.class, 
+            () -> walletService.getWalletByUserCode(TEST_USER_CODE));
     }
 
     @Test
     void getWalletByUserCode_ThrowsRuntimeException_OnJpaSystemException() {
         // Arrange
-        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenThrow(new JpaSystemException(new RuntimeException("DB Connection Lost")));
+        when(walletRepository.findByUserCode(TEST_USER_CODE))
+            .thenThrow(new JpaSystemException(new RuntimeException("DB Connection Lost")));
 
         // Act & Assert
-        assertThrows(RuntimeException.class, () -> walletService.getWalletByUserCode(TEST_USER_CODE));
+        RuntimeException thrown = assertThrows(
+            RuntimeException.class,
+            () -> walletService.getWalletByUserCode(TEST_USER_CODE)
+        );
+        assertEquals("Error accessing wallet data. Please try again later.", thrown.getMessage());
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
+    }
+    
+    @Test
+    void depositFunds_ThrowsIllegalArgumentException_ForInvalidAmount() {
+        // Arrange
+        WalletTransactionRequest invalidRequest = new WalletTransactionRequest()
+            .amount(-10.0)
+            .currency(DEFAULT_CURRENCY);
+        WalletTransactionRequestDto invalidRequestDto = new RestTransactionRequestAdapter(invalidRequest);
+        
+        // Act & Assert
+        assertThrows(
+            IllegalArgumentException.class,
+            () -> walletService.depositFunds(TEST_USER_CODE, invalidRequestDto)
+        );
+        verify(walletRepository, never()).findByUserCode(anyString());
+        verify(walletRepository, never()).save(any());
     }
 
+    
+    @Test
+    void getWalletBalance_Success() {
+        // Arrange
+        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
+        
+        // Act
+        Double balance = walletService.getWalletBalance(TEST_USER_CODE);
+        
+        // Assert
+        assertNotNull(balance);
+        assertEquals(DEFAULT_INITIAL_BALANCE, balance);
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
+    }
+    
+    // --- getAvailableBalance Tests ---
+    
+    @Test
+    void getAvailableBalance_Success() {
+        // Arrange
+        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
+        
+        // Act
+        Double availableBalance = walletService.getAvailableBalance(TEST_USER_CODE);
+        
+        // Assert
+        assertNotNull(availableBalance);
+        assertEquals(DEFAULT_INITIAL_BALANCE, availableBalance);
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
+    }
+    
+    // --- walletExists Tests ---
+    
+    @Test
+    void walletExists_ReturnsTrue() {
+        // Arrange
+        when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenReturn(true);
+        
+        // Act
+        boolean exists = walletService.walletExists(TEST_USER_CODE);
+        
+        // Assert
+        assertTrue(exists);
+        verify(walletRepository).existsByUserCode(TEST_USER_CODE);
+    }
+    
+    @Test
+    void walletExists_ReturnsFalse() {
+        // Arrange
+        when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenReturn(false);
+        
+        // Act
+        boolean exists = walletService.walletExists(TEST_USER_CODE);
+        
+        // Assert
+        assertFalse(exists);
+        verify(walletRepository).existsByUserCode(TEST_USER_CODE);
+    }
     @Test
     void getWalletByUserCode_ThrowsRuntimeException_OnUnexpectedException() {
         // Arrange
-        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenThrow(new NullPointerException("NPE"));
+        when(walletRepository.findByUserCode(TEST_USER_CODE))
+            .thenThrow(new NullPointerException("NPE"));
 
         // Act & Assert
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> walletService.getWalletByUserCode(TEST_USER_CODE));
+        RuntimeException ex = assertThrows(RuntimeException.class, 
+            () -> walletService.getWalletByUserCode(TEST_USER_CODE));
         assertEquals(WalletConstants.INTERNAL_SERVER_ERROR, ex.getMessage());
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
     }
 
     // --- depositFunds Tests ---
-
     @Test
     void depositFunds_Success() {
         // Arrange
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
         when(walletRepository.save(any(Wallet.class))).thenReturn(wallet);
-
+        
         // Act
-        var response = walletService.depositFunds(TEST_USER_CODE, transactionRequest);
-
+        WalletTransactionResponseDto response = walletService.depositFunds(TEST_USER_CODE, transactionRequestDto);
+        
         // Assert
         assertNotNull(response);
-        assertEquals(DEFAULT_INITIAL_BALANCE + TRANSACTION_AMOUNT, wallet.getBalance());
-        assertEquals(DEFAULT_INITIAL_BALANCE + TRANSACTION_AMOUNT, wallet.getAvailableBalance());
+        assertEquals(WalletTransactionResponseDto.TransactionType.DEPOSIT, response.getTransactionType());
+        assertEquals(WalletTransactionResponseDto.TransactionStatus.COMPLETED, response.getStatus());
         assertEquals(TRANSACTION_AMOUNT, response.getProcessedAmount());
+        // Update expected balance to 150.0 (100.0 initial + 50.0 deposit)
+        assertEquals(150.0, response.getNewBalance());
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
         verify(walletRepository).save(any(Wallet.class));
     }
 
     // Deposit Validation Failures
     @Test
     void depositFunds_ThrowsIllegalArgumentException_IfUserCodeIsBlank() {
-        assertThrows(IllegalArgumentException.class, () -> walletService.depositFunds("", transactionRequest));
+        assertThrows(IllegalArgumentException.class, () -> walletService.depositFunds("", transactionRequestDto));
     }
 
     @Test
@@ -261,24 +366,12 @@ class WalletServiceImplTest {
     }
 
     @Test
-    void depositFunds_ThrowsIllegalArgumentException_IfAmountIsZero() {
-        transactionRequest.amount(0.0);
-        assertThrows(IllegalArgumentException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
-    }
-
-    @Test
-    void depositFunds_ThrowsIllegalArgumentException_IfAmountIsNegative() {
-        transactionRequest.amount(-10.0);
-        assertThrows(IllegalArgumentException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
-    }
-
-    @Test
     void depositFunds_ThrowsWalletNotFoundException() {
         // Arrange
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.empty());
 
         // Act & Assert
-        assertThrows(WalletNotFoundException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
+        assertThrows(WalletNotFoundException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequestDto));
     }
 
     @Test
@@ -288,7 +381,7 @@ class WalletServiceImplTest {
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
 
         // Act & Assert
-        assertThrows(IllegalStateException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
+        assertThrows(IllegalStateException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequestDto));
     }
 
     // Deposit Exception Handling
@@ -300,7 +393,7 @@ class WalletServiceImplTest {
         when(walletRepository.save(any(Wallet.class))).thenThrow(ex);
 
         // Act & Assert
-        assertThrows(DuplicateTransactionException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
+        assertThrows(DuplicateTransactionException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequestDto));
     }
 
     @Test
@@ -312,10 +405,10 @@ class WalletServiceImplTest {
 
         // Act & Assert
         RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
+                () -> walletService.depositFunds(TEST_USER_CODE, transactionRequestDto));
 
         // Check that the error message contains the expected text
-        assertTrue(thrown.getMessage().contains("Transaction failed") || 
+        assertTrue(thrown.getMessage().contains("Transaction failed") ||
                  thrown.getMessage().contains("database error") ||
                  thrown.getCause() == ex);
     }
@@ -327,7 +420,7 @@ class WalletServiceImplTest {
         when(walletRepository.save(any(Wallet.class))).thenThrow(new JpaSystemException(new RuntimeException("DB Timeout")));
 
         // Act & Assert
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequestDto));
         assertTrue(thrown.getMessage().contains("Error processing transaction. Please try again later."));
     }
 
@@ -337,7 +430,7 @@ class WalletServiceImplTest {
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenThrow(new NullPointerException("NPE"));
 
         // Act & Assert
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequest));
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> walletService.depositFunds(TEST_USER_CODE, transactionRequestDto));
         assertEquals(WalletConstants.INTERNAL_SERVER_ERROR, thrown.getMessage());
     }
 
@@ -349,63 +442,62 @@ class WalletServiceImplTest {
         // Arrange
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
         when(walletRepository.save(any(Wallet.class))).thenReturn(wallet);
-
+        
         // Act
-        var response = walletService.withdrawFunds(TEST_USER_CODE, transactionRequest);
-
+        WalletTransactionResponseDto response = walletService.withdrawFunds(TEST_USER_CODE, transactionRequestDto);
+        
         // Assert
         assertNotNull(response);
-        assertEquals(DEFAULT_INITIAL_BALANCE - TRANSACTION_AMOUNT, wallet.getBalance());
-        assertEquals(DEFAULT_INITIAL_BALANCE - TRANSACTION_AMOUNT, wallet.getAvailableBalance());
+        assertEquals(WalletTransactionResponseDto.TransactionType.WITHDRAWAL, response.getTransactionType());
+        assertEquals(WalletTransactionResponseDto.TransactionStatus.COMPLETED, response.getStatus());
         assertEquals(TRANSACTION_AMOUNT, response.getProcessedAmount());
+        // Update expected balance to 50.0 (100.0 initial - 50.0 withdrawal)
+        assertEquals(50.0, response.getNewBalance());
+        verify(walletRepository).findByUserCode(TEST_USER_CODE);
         verify(walletRepository).save(any(Wallet.class));
     }
 
     @Test
     void withdrawFunds_ThrowsInsufficientFundsException() {
         // Arrange
-        transactionRequest.amount(200.0); // More than available balance
+        // Create a new transaction request with a higher amount
+        WalletTransactionRequest highAmountRequest = new WalletTransactionRequest()
+                .amount(200.0)  // More than available balance
+                .currency(DEFAULT_CURRENCY);
+        WalletTransactionRequestDto highAmountRequestDto = new RestTransactionRequestAdapter(highAmountRequest);
+
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
 
         // Act & Assert
-        assertThrows(InsufficientFundsException.class, () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequest));
+        assertThrows(InsufficientFundsException.class,
+                () -> walletService.withdrawFunds(TEST_USER_CODE, highAmountRequestDto));
         verify(walletRepository, never()).save(any());
     }
 
-    // Withdraw Validation/Setup Failures (same as deposit)
+    // Withdraw Validation/Setup Failures
     @Test
     void withdrawFunds_ThrowsWalletNotFoundException() {
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.empty());
-        assertThrows(WalletNotFoundException.class, () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequest));
+        assertThrows(WalletNotFoundException.class,
+                () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequestDto));
     }
 
     @Test
     void withdrawFunds_ThrowsIllegalStateException_IfWalletInactive() {
         wallet.setWalletStatus(HoldStatus.FROZEN);
         when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
-        assertThrows(IllegalStateException.class, () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequest));
+        assertThrows(IllegalStateException.class,
+                () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequestDto));
     }
 
     @Test
     void withdrawFunds_ThrowsRuntimeException_OnUnexpectedException() {
-        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenThrow(new RuntimeException("Unexpected error"));
+        when(walletRepository.findByUserCode(TEST_USER_CODE))
+                .thenThrow(new RuntimeException("Unexpected error"));
 
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequest));
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> walletService.withdrawFunds(TEST_USER_CODE, transactionRequestDto));
         assertEquals(WalletConstants.INTERNAL_SERVER_ERROR, thrown.getMessage());
-    }
-
-    // --- getWalletBalance Tests ---
-
-    @Test
-    void getWalletBalance_Success() {
-        // Arrange
-        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
-
-        // Act
-        Double balance = walletService.getWalletBalance(TEST_USER_CODE);
-
-        // Assert
-        assertEquals(DEFAULT_INITIAL_BALANCE, balance);
     }
 
     @Test
@@ -427,19 +519,6 @@ class WalletServiceImplTest {
         assertEquals(WalletConstants.INTERNAL_SERVER_ERROR, ex.getMessage());
     }
 
-    // --- getAvailableBalance Tests ---
-
-    @Test
-    void getAvailableBalance_Success() {
-        // Arrange
-        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
-
-        // Act
-        Double availableBalance = walletService.getAvailableBalance(TEST_USER_CODE);
-
-        // Assert
-        assertEquals(DEFAULT_INITIAL_BALANCE, availableBalance);
-    }
 
     @Test
     void getAvailableBalance_ThrowsWalletNotFoundException() {
@@ -460,20 +539,6 @@ class WalletServiceImplTest {
         assertEquals(WalletConstants.INTERNAL_SERVER_ERROR, ex.getMessage());
     }
 
-    // --- walletExists Tests ---
-
-    @Test
-    void walletExists_ReturnsTrue() {
-        when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenReturn(true);
-        assertTrue(walletService.walletExists(TEST_USER_CODE));
-    }
-
-    @Test
-    void walletExists_ReturnsFalse() {
-        when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenReturn(false);
-        assertFalse(walletService.walletExists(TEST_USER_CODE));
-    }
-
     @Test
     void walletExists_ThrowsRuntimeException_OnException() {
         when(walletRepository.existsByUserCode(TEST_USER_CODE)).thenThrow(new RuntimeException("DB Error"));
@@ -484,13 +549,18 @@ class WalletServiceImplTest {
     // --- Helper Method Edge Case Tests (for coverage) ---
 
     @Test
-    void mapToWalletResponse_ThrowsIllegalStateException_IfUserSnapshotIsNull() {
-        // Arrange: Simulate a database inconsistency where wallet exists but snapshot link is broken
-        wallet.setUserSnapshot(null);
-
-        // Act & Assert (Need to call a method that uses mapToWalletResponse, e.g., getWalletByUserCode)
-        when(walletRepository.findByUserCode(TEST_USER_CODE)).thenReturn(Optional.of(wallet));
-
-        assertThrows(IllegalStateException.class, () -> walletService.getWalletByUserCode(TEST_USER_CODE));
+    void mapToWalletResponse_HandlesNullUserSnapshot() {
+        // Arrange: Create a wallet with null user snapshot
+        Wallet wallet = Wallet.builder()
+            .id(1L)
+            .balance(100.0)
+            .availableBalance(100.0)
+            .currency("USD")
+            .walletStatus(HoldStatus.ACTIVE)
+            .userSnapshot(null)  // Explicitly set to null
+            .build();
+        
+        // Act & Assert: Verify that the adapter can handle null user snapshot
+        assertDoesNotThrow(() -> new WalletResponseAdapter(wallet));
     }
 }

@@ -1,11 +1,9 @@
 package com.central.wallet_service.service;
 
-import com.central.wallet_service.model.WalletHold;
-import org.openapitools.model.*;
+import com.central.wallet_service.dto.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 
 /**
@@ -20,7 +18,7 @@ public interface HoldService {
      * @param request Hold request details
      * @return Created hold details
      */
-    HoldResponse placeHold(HoldRequest request);
+    HoldResponseDto placeHold(PlaceHoldRequestDto request);
     
     /**
      * Captures a hold and transfers funds from available to actual balance
@@ -28,7 +26,7 @@ public interface HoldService {
      * @param captureRequest Capture request details
      * @return Updated hold details
      */
-    HoldResponse captureHoldFunds(CaptureRequest captureRequest);
+    HoldResponseDto captureHoldFunds(CaptureRequestDto captureRequest);
     
     /**
      * Releases a hold and makes the funds available again
@@ -37,7 +35,7 @@ public interface HoldService {
      * @param request Release request details
      * @return Updated hold details
      */
-    HoldResponse releaseHold(String holdId, ReleaseHoldRequest request);
+    HoldResponseDto releaseHold(String holdId, ReleaseHoldRequestDto request);
     
     /**
      * Extends the expiration time of a hold
@@ -46,7 +44,7 @@ public interface HoldService {
      * @param request Extension request details
      * @return Updated hold details
      */
-    HoldResponse extendHold(String holdId, ExtendHoldRequest request);
+    HoldResponseDto extendHold(String holdId, ExtendHoldRequestDto request);
     
     /**
      * Adjusts the amount of a hold
@@ -55,7 +53,7 @@ public interface HoldService {
      * @param request Adjustment request details
      * @return Updated hold details
      */
-    HoldResponse adjustHold(String holdId, AdjustHoldRequest request);
+    HoldResponseDto adjustHold(String holdId, AdjustHoldRequestDto request);
     
     /**
      * Retrieves details of a specific hold
@@ -63,20 +61,20 @@ public interface HoldService {
      * @param holdId ID of the hold to retrieve
      * @return Hold details
      */
-    HoldResponse getHold(String holdId);
+    HoldResponseDto getHold(String holdId);
     
     /**
      * Lists holds based on filter criteria
      *
      * @param userCode Filter by user code (optional)
-     * @param status Filter by status (optional)
+     * @param status   Filter by status (optional)
      * @param currency Filter by currency (optional)
      * @param fromDate Filter by start date (optional)
-     * @param toDate Filter by end date (optional)
+     * @param toDate   Filter by end date (optional)
      * @param pageable Pagination information
      * @return Page of holds matching the criteria
      */
-    Page<HoldResponse> listHolds(
+    Page<HoldResponseDto> listHolds(
         String userCode,
         String status,
         String currency,

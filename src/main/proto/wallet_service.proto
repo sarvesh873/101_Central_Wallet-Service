@@ -55,9 +55,9 @@ message WalletResponseGRPC {
   google.protobuf.Timestamp created_at = 7;
 
   // Snapshot data replicated from the User Service.
-  string username = 8;
-  string email = 9;
-  string phone_number = 10;
+  optional string username = 8;
+  optional string email = 9;
+  optional string phone_number = 10;
 }
 
 // Used for both deposit and withdrawal requests.
@@ -93,7 +93,7 @@ message WalletTransactionResponseGRPC {
   TransactionStatusGRPC status = 7;
 
   // Snapshot data for context
-  string username = 8;
-  string email = 9;
-  string phone_number = 10;
+  optional string username = 8;
+  optional string email = 9;
+  optional string phone_number = 10;
 }
